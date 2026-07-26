@@ -1,37 +1,25 @@
 package main
 
 import (
+	"chansat/internal/cli"
+	"chansat/internal/tui"
 	"fmt"
 	"os"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
-type model struct{}
+func main() {
+	var err error
 
-func (model) Init() tea.Cmd {
-	return nil
-}
-
-func (model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return model{}, tea.Quit
-		}
+	if len(os.Args) == 1 {
+		err = tui.Run()
+	} else {
+		err = cli.Run(os.Args[1:])
 	}
 
-	return model{}, nil
-}
-
-func (model) View() string {
-	return "chansat\n\nA minimal time tracker.\n\nPress q to quit.\n"
-}
-
-func main() {
-	if _, err := tea.NewProgram(model{}).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "chansat: %v\n", err)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+
+	os.Exit(0)
 }
