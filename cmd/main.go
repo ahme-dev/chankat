@@ -7,13 +7,15 @@ import (
 	"os"
 )
 
+var version = "dev"
+
 func main() {
 	var err error
 
 	if len(os.Args) == 1 {
 		err = tui.Run()
 	} else {
-		err = cli.Run(os.Args[1:])
+		err = cli.Run(os.Args[1:], version)
 	}
 
 	if err != nil {
