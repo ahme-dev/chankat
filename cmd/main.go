@@ -26,12 +26,12 @@ func (model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model) View() string {
-	return "tt\n\nA minimal time tracker.\n\nPress q to quit.\n"
+	return "chansat\n\nA minimal time tracker.\n\nPress q to quit.\n"
 }
 
 func main() {
 	if _, err := tea.NewProgram(model{}).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "tt: %v\n", err)
+		fmt.Fprintf(os.Stderr, "chansat: %v\n", err)
 		os.Exit(1)
 	}
 }

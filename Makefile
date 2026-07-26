@@ -1,10 +1,11 @@
 .PHONY: build run test fmt clean
 
 build:
-	go build -o tt ./cmd/tt
+	mkdir -p build
+	go build -o build/chansat ./cmd
 
 run:
-	go run ./cmd/tt
+	go run ./cmd
 
 test:
 	go test ./...
@@ -14,4 +15,4 @@ fmt:
 
 clean:
 	go clean
-	rm -f tt
+	rm -rf build
