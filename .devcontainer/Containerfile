@@ -1,0 +1,36 @@
+FROM debian:trixie-slim
+
+# install base packages
+RUN apt-get update && apt-get install -y \
+	unzip \
+	sudo \
+	git \
+	build-essential \
+	bash-completion \
+	curl \
+	wget \
+	vim \
+	less \
+	man-db \
+	&& apt-get clean \
+	&& rm -rf /var/lib/apt/lists/*
+
+# install needed packages
+RUN apt-get update && apt-get install -y \
+	golang \
+	&& apt-get clean \
+	&& rm -rf /var/lib/apt/lists/*
+
+# create default sudo user
+ARG USERNAME=dc
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN groupadd --gid $USER_GID $USERNAME \
+	&& useradd --uid $USER_UID --gid $USER_GID -m -s /bin/bash $USERNAME \
+	&& echo "$USERNAME ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
+	&& chmod 0440 /etc/sudoers.d/$USERNAME
+
+USER $USERNAME
+
+WORKDIR /workspace
+CMD ["/bin/bash"]

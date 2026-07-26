@@ -1,0 +1,12 @@
+{
+	"name": "Chansat DC",
+	"build": {
+		"dockerfile": "Containerfile"
+	},
+	"shutdownAction": "stopContainer",
+	"runArgs": [
+		"--security-opt",
+		"label=disable"
+	],
+	"remoteUser": "dc"
+}
