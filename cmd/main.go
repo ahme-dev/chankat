@@ -31,7 +31,7 @@ func run() error {
 	}
 
 	if len(os.Args) == 1 {
-		return tui.Run()
+		return tui.Run(ctx, stor)
 	}
 
 	return cli.Run(ctx, os.Args[1:], version, stor)
