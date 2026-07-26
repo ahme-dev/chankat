@@ -1,14 +1,18 @@
 package storage
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 
+	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 )
 
-func Open() (*sql.DB, error) {
+type Storage struct {
+	db *sqlx.DB
+}
+
+func Open() (*Storage, error) {
 	dir, err := dataDir()
 	if err != nil {
 		return nil, err
@@ -20,7 +24,7 @@ func Open() (*sql.DB, error) {
 
 	path := filepath.Join(dir, "data.sqlite")
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sqlx.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +35,7 @@ func Open() (*sql.DB, error) {
 		return nil, err
 	}
 
-	return db, nil
+	return &Storage{db: db}, nil
 }
 
 func dataDir() (string, error) {
@@ -47,8 +51,8 @@ func dataDir() (string, error) {
 	return filepath.Join(home, ".local", "share", "chansat"), nil
 }
 
-func Migrate(db *sql.DB) error {
-	tx, err := db.Begin()
+func (s *Storage) Migrate() error {
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
@@ -59,4 +63,12 @@ func Migrate(db *sql.DB) error {
 	}
 
 	return tx.Commit()
+}
+
+func (s *Storage) Close() error {
+	return s.db.Close()
+}
+
+func (s *Storage) QueryRow(query string, args ...interface{}) *sqlx.Row {
+	return s.db.QueryRowx(query, args...)
 }

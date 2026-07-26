@@ -4,6 +4,7 @@ import (
 	"chansat/internal/cli"
 	"chansat/internal/storage"
 	"chansat/internal/tui"
+	"context"
 	"fmt"
 	"os"
 )
@@ -18,13 +19,14 @@ func main() {
 }
 
 func run() error {
-	db, err := storage.Open()
+	ctx := context.Background()
+
+	stor, err := storage.Open()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-
-	if err := storage.Migrate(db); err != nil {
+	defer stor.Close()
+	if err := stor.Migrate(); err != nil {
 		return err
 	}
 
@@ -32,5 +34,5 @@ func run() error {
 		return tui.Run()
 	}
 
-	return cli.Run(os.Args[1:], version)
+	return cli.Run(ctx, os.Args[1:], version, stor)
 }
