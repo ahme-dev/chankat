@@ -12,18 +12,8 @@ Track your work hours across tasks, projects and rates from your terminal. Keybo
 
 ## Screenshots
 
-<p align="center">
-  <img src="assets/sc-tasks.png" alt="Tasks screen">
-</p>
-
-<p align="center">
-  <img src="assets/sc-payments.png" alt="Payments screen">
-</p>
-
-<p align="center">
-  <img src="assets/sc-editor-projects.png" alt="Project editor">
-</p>
-
-<p align="center">
-  <img src="assets/sc-editor-payments.png" alt="Payment editor">
-</p>
+| Tasks | Payments |
+| --- | --- |
+| ![Tasks screen](assets/sc-tasks.png) | ![Payments screen](assets/sc-payments.png) |
+| Project editor | Payment editor |
+| ![Project editor](assets/sc-editor-projects.png) | ![Payment editor](assets/sc-editor-payments.png) |
