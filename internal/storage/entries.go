@@ -130,6 +130,28 @@ func (s *Storage) UpdateEntry(ctx context.Context, entry Entry) error {
 	return nil
 }
 
+func (s *Storage) PauseEntry(ctx context.Context, id int, endedAt time.Time) error {
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE ENTRY
+		 SET ENDED_AT = $1
+		 WHERE ID = $2 AND ENDED_AT IS NULL`,
+		endedAt.Unix(),
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("pause entry: %w", err)
+	}
+	paused, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get paused entry count: %w", err)
+	}
+	if paused == 0 {
+		return fmt.Errorf("entry %d is not active", id)
+	}
+	return nil
+}
+
 func (s *Storage) DeleteEntry(ctx context.Context, id int) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM ENTRY WHERE ID = $1`, id)
 	if err != nil {

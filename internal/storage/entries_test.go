@@ -122,6 +122,46 @@ func TestUpdateEntry(t *testing.T) {
 	})
 }
 
+func TestPauseEntry(t *testing.T) {
+	t.Run("closes active entry", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		ctx := t.Context()
+		startedAt := time.Unix(1_700_000_000, 0)
+		endedAt := startedAt.Add(time.Hour)
+		if err := stor.CreateEntry(ctx, storage.Entry{StartedAt: startedAt}); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := stor.PauseEntry(ctx, 1, endedAt); err != nil {
+			t.Fatal(err)
+		}
+		entry, err := stor.GetEntry(ctx, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.EndedAt == nil || !entry.EndedAt.Equal(endedAt) {
+			t.Fatalf("unexpected end time: %v", entry.EndedAt)
+		}
+	})
+
+	t.Run("rejects completed entry", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		ctx := t.Context()
+		startedAt := time.Unix(1_700_000_000, 0)
+		endedAt := startedAt.Add(time.Hour)
+		if err := stor.CreateEntry(ctx, storage.Entry{
+			StartedAt: startedAt, EndedAt: &endedAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		err := stor.PauseEntry(ctx, 1, endedAt.Add(time.Hour))
+		if err == nil || !strings.Contains(err.Error(), "not active") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestDeleteEntry(t *testing.T) {
 	t.Run("existing entry", func(t *testing.T) {
 		stor := fixtureStorage(t)

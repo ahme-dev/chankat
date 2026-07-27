@@ -3,6 +3,7 @@ package storage_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"chansat/internal/storage"
 )
@@ -23,6 +24,56 @@ func TestCreateTask(t *testing.T) {
 			Name: "project task", ProjectID: project.ID,
 		}); err != nil {
 			t.Fatal(err)
+		}
+	})
+}
+
+func TestCreateTaskAndStart(t *testing.T) {
+	t.Run("creates task and active entry", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		ctx := t.Context()
+		project := fixtureProject(t, stor)
+		startedAt := time.Unix(1_700_000_000, 0)
+
+		if err := stor.CreateTaskAndStart(ctx, storage.Task{
+			Name: "tracked task", ProjectID: project.ID,
+		}, startedAt); err != nil {
+			t.Fatal(err)
+		}
+
+		tasks, err := stor.GetTasks(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := stor.GetActiveEntries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 || len(entries) != 1 {
+			t.Fatalf("got %d tasks and %d entries", len(tasks), len(entries))
+		}
+		if entries[0].TaskID == nil || *entries[0].TaskID != tasks[0].ID ||
+			entries[0].ProjectID == nil || *entries[0].ProjectID != project.ID ||
+			entries[0].RateID == nil || *entries[0].RateID != project.RateID ||
+			!entries[0].StartedAt.Equal(startedAt) {
+			t.Fatalf("unexpected entry: %#v", entries[0])
+		}
+	})
+
+	t.Run("rolls back for missing project", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		err := stor.CreateTaskAndStart(t.Context(), storage.Task{
+			Name: "invalid", ProjectID: 999,
+		}, time.Now())
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		tasks, getErr := stor.GetTasks(t.Context())
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if len(tasks) != 0 {
+			t.Fatalf("got %d tasks, want 0", len(tasks))
 		}
 	})
 }
