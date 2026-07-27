@@ -3,6 +3,7 @@ package storage_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"chansat/internal/storage"
 )
@@ -79,6 +80,28 @@ func TestCreateRate(t *testing.T) {
 	})
 }
 
+func TestGetRate(t *testing.T) {
+	t.Run("existing rate", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		want := fixtureRate(t, stor)
+
+		got, err := stor.GetRate(t.Context(), want.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRate(t, got, want)
+	})
+
+	t.Run("missing rate", func(t *testing.T) {
+		stor := fixtureStorage(t)
+
+		_, err := stor.GetRate(t.Context(), 999)
+		if err == nil || !strings.Contains(err.Error(), "rate 999 not found") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 func TestUpdateRate(t *testing.T) {
 	t.Run("updates existing rate", func(t *testing.T) {
 		stor := fixtureStorage(t)
@@ -130,6 +153,49 @@ func TestUpdateRate(t *testing.T) {
 			t.Fatal("expected an error")
 		}
 		if !strings.Contains(err.Error(), "rate 999 not found") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("referenced rate", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		ctx := t.Context()
+		rate := fixtureRate(t, stor)
+		startedAt := time.Now()
+
+		if err := stor.CreateEntry(ctx, storage.Entry{
+			RateID:    &rate.ID,
+			StartedAt: startedAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		rate.AmountMinor = 8000
+		err := stor.UpdateRate(ctx, rate)
+		if err == nil || !strings.Contains(err.Error(), "referenced") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestDeleteRate(t *testing.T) {
+	t.Run("existing rate", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		rate := fixtureRate(t, stor)
+
+		if err := stor.DeleteRate(t.Context(), rate.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := stor.GetRate(t.Context(), rate.ID); err == nil {
+			t.Fatal("deleted rate still exists")
+		}
+	})
+
+	t.Run("missing rate", func(t *testing.T) {
+		stor := fixtureStorage(t)
+
+		err := stor.DeleteRate(t.Context(), 999)
+		if err == nil || !strings.Contains(err.Error(), "rate 999 not found") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})

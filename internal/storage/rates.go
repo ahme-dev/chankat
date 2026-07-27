@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
@@ -31,6 +32,27 @@ func (s *Storage) GetRates(ctx context.Context) ([]Rate, error) {
 	return rates, nil
 }
 
+func (s *Storage) GetRate(ctx context.Context, id int) (Rate, error) {
+	const query = `
+		SELECT
+			ID AS id,
+			NAME AS name,
+			AMOUNT_MINOR AS amount_minor,
+			CURRENCY AS currency
+		FROM RATE
+		WHERE ID = $1
+	`
+
+	var rate Rate
+	if err := s.db.GetContext(ctx, &rate, query, id); err != nil {
+		if err == sql.ErrNoRows {
+			return Rate{}, fmt.Errorf("rate %d not found", id)
+		}
+		return Rate{}, fmt.Errorf("get rate: %w", err)
+	}
+	return rate, nil
+}
+
 func (s *Storage) CreateRate(ctx context.Context, rate Rate) error {
 	const query = `
 		INSERT INTO RATE (NAME, AMOUNT_MINOR, CURRENCY)
@@ -50,6 +72,11 @@ func (s *Storage) UpdateRate(ctx context.Context, rate Rate) error {
 		UPDATE RATE
 		SET NAME = $1, AMOUNT_MINOR = $2, CURRENCY = $3
 		WHERE ID = $4
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM ENTRY
+			WHERE RATE_ID = $4
+		  )
 	`
 
 	result, err := s.db.ExecContext(
@@ -69,8 +96,37 @@ func (s *Storage) UpdateRate(ctx context.Context, rate Rate) error {
 		return fmt.Errorf("get updated rate count: %w", err)
 	}
 	if updated == 0 {
+		var referenced bool
+		if err := s.db.GetContext(ctx, &referenced, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM ENTRY
+				WHERE RATE_ID = $1
+			)
+		`, rate.ID); err != nil {
+			return fmt.Errorf("check rate references: %w", err)
+		}
+		if referenced {
+			return fmt.Errorf("rate %d is referenced and cannot be updated", rate.ID)
+		}
 		return fmt.Errorf("rate %d not found", rate.ID)
 	}
 
+	return nil
+}
+
+func (s *Storage) DeleteRate(ctx context.Context, id int) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM RATE WHERE ID = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete rate: %w", err)
+	}
+
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get deleted rate count: %w", err)
+	}
+	if deleted == 0 {
+		return fmt.Errorf("rate %d not found", id)
+	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -52,17 +53,30 @@ func dataDir() (string, error) {
 }
 
 func (s *Storage) Migrate() error {
-	tx, err := s.db.Begin()
+	tx, err := s.db.Beginx()
 	if err != nil {
-		return err
+		return fmt.Errorf("begin migration: %w", err)
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(schema); err != nil {
-		return err
+	var version int
+	if err := tx.Get(&version, `PRAGMA user_version`); err != nil {
+		return fmt.Errorf("get schema version: %w", err)
 	}
 
-	return tx.Commit()
+	for i := version; i < len(migrations); i++ {
+		if _, err := tx.Exec(migrations[i]); err != nil {
+			return fmt.Errorf("apply migration %d: %w", i+1, err)
+		}
+		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
+			return fmt.Errorf("set schema version %d: %w", i+1, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration: %w", err)
+	}
+	return nil
 }
 
 func (s *Storage) Close() error {
