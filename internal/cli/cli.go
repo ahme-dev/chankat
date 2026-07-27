@@ -29,8 +29,8 @@ func Run(ctx context.Context, args []string, version string, stor *storage.Stora
 	case args[0] == "rates":
 		switch args[1] {
 		case "create":
-			if len(args) != 4 {
-				return fmt.Errorf("expected name and amount minor, got %d", len(args)-1)
+			if len(args) != 5 {
+				return fmt.Errorf("usage: rates create <name> <amount-minor> <currency>")
 			}
 
 			amountMinor, err := strconv.Atoi(args[3])
@@ -41,6 +41,7 @@ func Run(ctx context.Context, args []string, version string, stor *storage.Stora
 			rate := storage.Rate{
 				Name:        args[2],
 				AmountMinor: amountMinor,
+				Currency:    args[4],
 			}
 			if err := stor.CreateRate(ctx, rate); err != nil {
 				return fmt.Errorf("create rate: %w", err)

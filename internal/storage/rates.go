@@ -52,9 +52,24 @@ func (s *Storage) UpdateRate(ctx context.Context, rate Rate) error {
 		WHERE ID = $4
 	`
 
-	_, err := s.db.ExecContext(ctx, query, rate.Name, rate.AmountMinor, rate.Currency)
+	result, err := s.db.ExecContext(
+		ctx,
+		query,
+		rate.Name,
+		rate.AmountMinor,
+		rate.Currency,
+		rate.ID,
+	)
 	if err != nil {
 		return fmt.Errorf("update rate: %w", err)
+	}
+
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get updated rate count: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("rate %d not found", rate.ID)
 	}
 
 	return nil
