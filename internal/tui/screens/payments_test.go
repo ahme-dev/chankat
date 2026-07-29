@@ -20,7 +20,7 @@ func TestPaymentItem(t *testing.T) {
 	}
 	item := paymentItems([]storage.Payment{payment}, []storage.Project{project})[0]
 
-	if got := item.Title(); got != "Client · 1500.50 USD" {
+	if got := item.Title(); got != "$1,500.50 · Client" {
 		t.Fatalf("got title %q", got)
 	}
 	for _, value := range []string{"2026-07-20", "2026-06-30", "June"} {

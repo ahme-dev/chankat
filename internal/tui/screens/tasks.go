@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -316,13 +317,40 @@ func (m *Dashboard) refreshTables() {
 	for _, entry := range m.entries {
 		if entry.EndedAt == nil {
 			m.activeItems = append(m.activeItems, entry)
+			duration := m.now.Sub(entry.StartedAt)
+			if duration < 0 {
+				duration = 0
+			}
+			amounts := make(map[string]int64)
+			if entry.TaskID != nil {
+				duration, amounts = taskTotals(
+					m.entries,
+					m.rates,
+					*entry.TaskID,
+					m.now,
+				)
+			} else if entry.RateID != nil {
+				if rate, ok := m.rates[*entry.RateID]; ok {
+					seconds := int64(duration / time.Second)
+					amounts[rate.Currency] =
+						int64(rate.AmountMinor) * seconds / 3600
+				}
+			}
+			session := m.now.Sub(entry.StartedAt)
+			if session < 0 {
+				session = 0
+			}
+			description := []string{
+				m.entryProject(entry),
+				"session " + components.FormatDuration(session),
+				"total " + components.FormatDuration(duration),
+			}
+			if amount := formatTaskAmounts(amounts); amount != "" {
+				description = append(description, amount+" earned")
+			}
 			active = append(active, dashboardItem{
-				title: "[||] " + m.entryTask(entry),
-				description: strings.Join([]string{
-					m.entryProject(entry),
-					components.FormatDuration(m.now.Sub(entry.StartedAt)),
-					m.entryAmount(entry, m.now),
-				}, " · "),
+				title:       "[||] " + m.entryTask(entry),
+				description: strings.Join(description, " · "),
 			})
 		}
 	}
@@ -736,22 +764,73 @@ func taskItems(
 		project := projectsByID[task.ProjectID]
 		description := project.Name
 		if entry, ok := latest[task.ID]; ok {
-			description += " · last " +
-				components.FormatDuration(entry.EndedAt.Sub(entry.StartedAt))
-			if entry.RateID != nil {
-				if rate, ok := ratesByID[*entry.RateID]; ok {
-					seconds := int64(entry.EndedAt.Sub(entry.StartedAt) / time.Second)
-					amount := int64(rate.AmountMinor) * seconds / 3600
-					description += " · " +
-						components.FormatMoney(amount, rate.Currency)
-				}
+			duration, amounts := taskTotals(
+				entries,
+				ratesByID,
+				task.ID,
+				time.Time{},
+			)
+			description += " · total " + components.FormatDuration(duration)
+			if amount := formatTaskAmounts(amounts); amount != "" {
+				description += " · " + amount + " earned"
 			}
+			description += " · worked " + components.FormatDate(*entry.EndedAt)
 		}
 		items = append(items, taskItem{
 			task: task, project: project, description: description,
 		})
 	}
 	return items
+}
+
+func taskTotals(
+	entries []storage.Entry,
+	rates map[int]storage.Rate,
+	taskID int,
+	now time.Time,
+) (time.Duration, map[string]int64) {
+	var duration time.Duration
+	amounts := make(map[string]int64)
+	for _, entry := range entries {
+		if entry.TaskID == nil || *entry.TaskID != taskID {
+			continue
+		}
+		endedAt := now
+		if entry.EndedAt != nil {
+			endedAt = *entry.EndedAt
+		}
+		elapsed := endedAt.Sub(entry.StartedAt)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		duration += elapsed
+		if entry.RateID == nil {
+			continue
+		}
+		rate, ok := rates[*entry.RateID]
+		if !ok {
+			continue
+		}
+		seconds := int64(elapsed / time.Second)
+		amounts[rate.Currency] += int64(rate.AmountMinor) * seconds / 3600
+	}
+	return duration, amounts
+}
+
+func formatTaskAmounts(amounts map[string]int64) string {
+	if len(amounts) == 0 {
+		return ""
+	}
+	currencies := make([]string, 0, len(amounts))
+	for currency := range amounts {
+		currencies = append(currencies, currency)
+	}
+	sort.Strings(currencies)
+	formatted := make([]string, len(currencies))
+	for i, currency := range currencies {
+		formatted[i] = components.FormatMoney(amounts[currency], currency)
+	}
+	return strings.Join(formatted, ", ")
 }
 
 func taskForm(

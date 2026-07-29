@@ -18,6 +18,7 @@ type Rates struct {
 
 type rateItem struct {
 	storage.Rate
+	projectCount int
 }
 
 func (r rateItem) Title() string {
@@ -25,19 +26,35 @@ func (r rateItem) Title() string {
 }
 
 func (r rateItem) Description() string {
-	return components.FormatMoney(int64(r.AmountMinor), r.Currency) + "/h"
+	return components.FormatMoney(int64(r.AmountMinor), r.Currency) +
+		"/h · " + r.Currency + " · " +
+		strconv.Itoa(r.projectCount) + " " +
+		plural(r.projectCount, "project")
 }
 
 func (r rateItem) FilterValue() string {
 	return r.Name
 }
 
-func rateItems(rates []storage.Rate) []rateItem {
+func rateItems(rates []storage.Rate, projects []storage.Project) []rateItem {
+	projectCounts := make(map[int]int, len(rates))
+	for _, project := range projects {
+		projectCounts[project.RateID]++
+	}
 	items := make([]rateItem, len(rates))
 	for i, rate := range rates {
-		items[i] = rateItem{Rate: rate}
+		items[i] = rateItem{
+			Rate: rate, projectCount: projectCounts[rate.ID],
+		}
 	}
 	return items
+}
+
+func plural(count int, singular string) string {
+	if count == 1 {
+		return singular
+	}
+	return singular + "s"
 }
 
 func NewRates(ctx context.Context, stor *storage.Storage) Rates {
@@ -48,7 +65,11 @@ func NewRates(ctx context.Context, stor *storage.Storage) Rates {
 			if err != nil {
 				return nil, nil, err
 			}
-			return rateItems(rates), nil, nil
+			projects, err := stor.GetProjects(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			return rateItems(rates, projects), nil, nil
 		},
 		Create: func(any) (*components.Form[rateItem], error) {
 			return rateForm(ctx, stor, nil)
