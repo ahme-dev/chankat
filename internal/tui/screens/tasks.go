@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"chansat/internal/storage"
-	"chansat/internal/tui/components"
+	"chankat/internal/storage"
+	"chankat/internal/tui/components"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"

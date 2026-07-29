@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"chansat/internal/storage"
+	"chankat/internal/storage"
 )
 
 func TestGetProjects(t *testing.T) {

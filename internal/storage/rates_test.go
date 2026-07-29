@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"chansat/internal/storage"
+	"chankat/internal/storage"
 )
 
 func TestGetRates(t *testing.T) {

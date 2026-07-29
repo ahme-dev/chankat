@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 
 export async function publish(_config, context) {
-  const notesPath = `${process.env.RUNNER_TEMP}/chansat-release-notes.md`;
+  const notesPath = `${process.env.RUNNER_TEMP}/chankat-release-notes.md`;
   await writeFile(notesPath, context.nextRelease.notes, "utf8");
 
   const { stdout, stderr } = await run(

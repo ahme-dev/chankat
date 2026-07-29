@@ -1,9 +1,9 @@
 package main
 
 import (
-	"chansat/internal/cli"
-	"chansat/internal/storage"
-	"chansat/internal/tui"
+	"chankat/internal/cli"
+	"chankat/internal/storage"
+	"chankat/internal/tui"
 	"context"
 	"fmt"
 	"os"

@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"chansat/internal/storage"
-	"chansat/internal/tui/components"
+	"chankat/internal/storage"
+	"chankat/internal/tui/components"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"

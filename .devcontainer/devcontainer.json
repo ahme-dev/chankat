@@ -1,5 +1,5 @@
 {
-	"name": "Chansat DC",
+	"name": "Chankat DC",
 	"build": {
 		"dockerfile": "Containerfile"
 	},

@@ -1,4 +1,4 @@
-module chansat
+module chankat
 
 go 1.25.0
 

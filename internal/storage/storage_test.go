@@ -3,7 +3,7 @@ package storage_test
 import (
 	"testing"
 
-	"chansat/internal/storage"
+	"chankat/internal/storage"
 )
 
 func TestOpenAndMigrate(t *testing.T) {
