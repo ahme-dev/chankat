@@ -10,7 +10,7 @@
 
 Track your work hours across tasks, projects and rates from your terminal.
 
-Chansat comes with:
+Chankat comes with:
 
 - TUI controllable by vim motions, and mouse.
 - CLI for automation and integration with other apps.
@@ -18,11 +18,11 @@ Chansat comes with:
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ahme-dev/chansat/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ahme-dev/chankat/main/install.sh | sh
 ```
 
 The installer verifies the release checksum and writes to `~/.local/bin`. Set
-`CHANSAT_INSTALL_DIR` or `CHANSAT_VERSION` to override the destination or version.
+`CHANKAT_INSTALL_DIR` or `CHANKAT_VERSION` to override the destination or version.
 
 On windows, please check releases and manually install.
 

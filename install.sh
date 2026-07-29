@@ -2,12 +2,12 @@
 
 set -eu
 
-repository="ahme-dev/chansat"
+repository="ahme-dev/chankat"
 repository_url="https://github.com/$repository"
-install_dir="${CHANSAT_INSTALL_DIR:-$HOME/.local/bin}"
+install_dir="${CHANKAT_INSTALL_DIR:-$HOME/.local/bin}"
 
 fail() {
-	printf 'chansat: %s\n' "$1" >&2
+	printf 'chankat: %s\n' "$1" >&2
 	exit 1
 }
 
@@ -26,7 +26,7 @@ case "$(uname -m)" in
 	*) fail "unsupported architecture: $(uname -m)" ;;
 esac
 
-requested_version="${CHANSAT_VERSION:-}"
+requested_version="${CHANKAT_VERSION:-}"
 version="$requested_version"
 if [ -z "$version" ]; then
 	latest_url="$(
@@ -40,9 +40,9 @@ else
 	version="${version#v}"
 fi
 
-installed_binary="$install_dir/chansat"
-if [ ! -x "$installed_binary" ] && command -v chansat >/dev/null 2>&1; then
-	installed_binary="$(command -v chansat)"
+installed_binary="$install_dir/chankat"
+if [ ! -x "$installed_binary" ] && command -v chankat >/dev/null 2>&1; then
+	installed_binary="$(command -v chankat)"
 fi
 
 installed_version=""
@@ -52,7 +52,7 @@ if [ -x "$installed_binary" ]; then
 fi
 
 if [ "$installed_version" = "$version" ]; then
-	printf 'chansat %s is already installed at %s\n' "$version" "$installed_binary"
+	printf 'chankat %s is already installed at %s\n' "$version" "$installed_binary"
 	exit 0
 fi
 
@@ -77,23 +77,23 @@ version_is_newer() {
 
 if [ -n "$installed_version" ]; then
 	if version_is_newer "$version" "$installed_version"; then
-		printf 'Updating chansat %s to %s...\n' "$installed_version" "$version"
+		printf 'Updating chankat %s to %s...\n' "$installed_version" "$version"
 	elif [ -n "$requested_version" ]; then
-		printf 'Installing requested chansat %s over %s...\n' \
+		printf 'Installing requested chankat %s over %s...\n' \
 			"$version" "$installed_version"
 	else
-		printf 'Installed chansat %s is newer than release %s; nothing to do.\n' \
+		printf 'Installed chankat %s is newer than release %s; nothing to do.\n' \
 			"$installed_version" "$version"
 		exit 0
 	fi
 fi
 
-archive="chansat_${version}_${os}_${arch}.tar.gz"
+archive="chankat_${version}_${os}_${arch}.tar.gz"
 download_url="$repository_url/releases/download/v${version}"
 temporary_dir="$(mktemp -d)"
 trap 'rm -rf "$temporary_dir"' EXIT HUP INT TERM
 
-printf 'Downloading chansat %s for %s/%s...\n' "$version" "$os" "$arch"
+printf 'Downloading chankat %s for %s/%s...\n' "$version" "$os" "$arch"
 curl -fsSL "$download_url/$archive" -o "$temporary_dir/$archive"
 curl -fsSL "$download_url/checksums.txt" -o "$temporary_dir/checksums.txt"
 
@@ -115,10 +115,10 @@ fi
 
 tar -xzf "$temporary_dir/$archive" -C "$temporary_dir"
 mkdir -p "$install_dir"
-install -m 0755 "$temporary_dir/chansat" "$install_dir/chansat"
+install -m 0755 "$temporary_dir/chankat" "$install_dir/chankat"
 
-printf 'Installed chansat to %s/chansat\n' "$install_dir"
+printf 'Installed chankat to %s/chankat\n' "$install_dir"
 case ":$PATH:" in
 	*":$install_dir:"*) ;;
-	*) printf 'Add %s to PATH to run chansat.\n' "$install_dir" ;;
+	*) printf 'Add %s to PATH to run chankat.\n' "$install_dir" ;;
 esac
