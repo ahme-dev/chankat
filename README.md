@@ -10,6 +10,15 @@
 
 Track your work hours across tasks, projects and rates from your terminal. Keyboard first, minimal, no lock-in.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ahme-dev/chansat/main/install.sh | sh
+```
+
+The installer verifies the release checksum and writes to `~/.local/bin`. Set
+`CHANSAT_INSTALL_DIR` or `CHANSAT_VERSION` to override the destination or version.
+
 ## Releases
 
 Merges to `main` are released from [Conventional Commits](https://www.conventionalcommits.org/):
