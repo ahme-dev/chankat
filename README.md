@@ -19,6 +19,8 @@ curl -fsSL https://raw.githubusercontent.com/ahme-dev/chansat/main/install.sh | 
 The installer verifies the release checksum and writes to `~/.local/bin`. Set
 `CHANSAT_INSTALL_DIR` or `CHANSAT_VERSION` to override the destination or version.
 
+On windows, please check releases and manually install.
+
 ## Releases
 
 Merges to `main` are released from [Conventional Commits](https://www.conventionalcommits.org/):
