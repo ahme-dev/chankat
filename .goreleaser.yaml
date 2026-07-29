@@ -1,11 +1,11 @@
 version: 2
 
-project_name: chansat
+project_name: chankat
 
 builds:
-  - id: chansat
+  - id: chankat
     main: ./cmd
-    binary: chansat
+    binary: chankat
     env:
       - CGO_ENABLED=0
     goos:

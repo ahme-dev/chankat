@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"chansat/internal/storage"
+	"chankat/internal/storage"
 )
 
 func TestCreateTask(t *testing.T) {

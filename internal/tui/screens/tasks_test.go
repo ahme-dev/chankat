@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"chansat/internal/storage"
+	"chankat/internal/storage"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

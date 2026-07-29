@@ -3,7 +3,7 @@ package screens
 import (
 	"testing"
 
-	"chansat/internal/storage"
+	"chankat/internal/storage"
 )
 
 func TestRateItems(t *testing.T) {

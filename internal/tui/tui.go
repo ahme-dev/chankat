@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"chansat/internal/storage"
-	"chansat/internal/tui/screens"
+	"chankat/internal/storage"
+	"chankat/internal/tui/screens"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

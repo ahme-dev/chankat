@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"chansat/internal/storage"
+	"chankat/internal/storage"
 )
 
 func Run(ctx context.Context, args []string, version string, stor *storage.Storage) error {
@@ -15,7 +15,7 @@ func Run(ctx context.Context, args []string, version string, stor *storage.Stora
 	case args[0] == "":
 		return fmt.Errorf("expected command, got nothing")
 	case args[0] == "version":
-		fmt.Printf("chansat %s\n", version)
+		fmt.Printf("chankat %s\n", version)
 		return nil
 	case args[0] == "rates" && len(args) == 1:
 		rates, err := stor.GetRates(ctx)

@@ -41,7 +41,7 @@ func Open() (*Storage, error) {
 
 func dataDir() (string, error) {
 	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
-		return filepath.Join(dir, "chansat"), nil
+		return filepath.Join(dir, "chankat"), nil
 	}
 
 	home, err := os.UserHomeDir()
@@ -49,7 +49,7 @@ func dataDir() (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(home, ".local", "share", "chansat"), nil
+	return filepath.Join(home, ".local", "share", "chankat"), nil
 }
 
 func (s *Storage) Migrate() error {

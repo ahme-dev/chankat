@@ -4,7 +4,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
 	mkdir -p build
-	go build -ldflags "-X main.version=$(VERSION)" -o build/chansat ./cmd
+	go build -ldflags "-X main.version=$(VERSION)" -o build/chankat ./cmd
 
 run:
 	go run ./cmd
