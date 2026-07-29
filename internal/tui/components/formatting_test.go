@@ -7,16 +7,47 @@ import (
 
 func TestFormatMoney(t *testing.T) {
 	t.Run("positive", func(t *testing.T) {
-		if got := FormatMoney(5000, "USD"); got != "50.00 USD" {
+		if got := FormatMoney(5000, "USD"); got != "$50.00" {
 			t.Fatalf("got %q", got)
 		}
 	})
 
 	t.Run("negative", func(t *testing.T) {
-		if got := FormatMoney(-125, "EUR"); got != "-1.25 EUR" {
+		if got := FormatMoney(-125, "EUR"); got != "-€1.25" {
 			t.Fatalf("got %q", got)
 		}
 	})
+
+	t.Run("distinguishes dollar currencies", func(t *testing.T) {
+		if got := FormatMoney(5000, "CAD"); got != "CA$50.00" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("retains unknown code", func(t *testing.T) {
+		if got := FormatMoney(5000, "XYZ"); got != "5,000 XYZ minor" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("groups thousands", func(t *testing.T) {
+		if got := FormatMoney(123_456_789, "USD"); got != "$1,234,567.89" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("three minor units", func(t *testing.T) {
+		if got := FormatMoney(12_345, "IQD"); got != "12.345 IQD" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
+	t.Run("no minor units", func(t *testing.T) {
+		if got := FormatMoney(123_456, "JPY"); got != "¥123,456" {
+			t.Fatalf("got %q", got)
+		}
+	})
+
 }
 
 func TestFormatDate(t *testing.T) {

@@ -68,6 +68,45 @@ func TestDashboardTasksByRecentEntry(t *testing.T) {
 	if got := items[0].Title(); got != "[>] one" {
 		t.Fatalf("got first recent task %q, want task one", got)
 	}
+	if got := items[0].Description(); !strings.Contains(got, "total 2h 00m") {
+		t.Fatalf("got description %q, want cumulative duration", got)
+	}
+}
+
+func TestDashboardResumedTaskTotals(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	previousEnd := now.Add(-30 * time.Minute)
+	taskID := 1
+	projectID := 1
+	rateID := 1
+	m := NewDashboard(t.Context(), nil)
+	m.loading = false
+	m.now = now
+	m.tasks = map[int]string{taskID: "task"}
+	m.projects = map[int]string{projectID: "project"}
+	m.rates = map[int]storage.Rate{
+		rateID: {ID: rateID, AmountMinor: 5000, Currency: "USD"},
+	}
+	m.entries = []storage.Entry{
+		{
+			ID: 1, TaskID: &taskID, ProjectID: &projectID, RateID: &rateID,
+			StartedAt: now.Add(-90 * time.Minute), EndedAt: &previousEnd,
+		},
+		{
+			ID: 2, TaskID: &taskID, ProjectID: &projectID, RateID: &rateID,
+			StartedAt: previousEnd,
+		},
+	}
+
+	m.refreshTables()
+
+	view := m.View()
+	if !strings.Contains(view, "1h 30m") {
+		t.Fatalf("dashboard does not show cumulative duration:\n%s", view)
+	}
+	if !strings.Contains(view, "$75.00 earned") {
+		t.Fatalf("dashboard does not show cumulative amount:\n%s", view)
+	}
 }
 
 func TestDashboardRowAt(t *testing.T) {
@@ -166,7 +205,7 @@ func TestDashboardEntryAmount(t *testing.T) {
 		StartedAt: time.Now().Add(time.Second),
 	}
 
-	if got := m.entryAmount(entry, time.Now()); got != "0.00 USD" {
+	if got := m.entryAmount(entry, time.Now()); got != "$0.00" {
 		t.Fatalf("got amount %q, want zero", got)
 	}
 }

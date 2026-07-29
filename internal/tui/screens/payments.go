@@ -25,8 +25,10 @@ type paymentItem struct {
 }
 
 func (p paymentItem) Title() string {
-	return p.project.Name + " · " +
-		components.FormatMoney(int64(p.payment.AmountMinor), p.payment.Currency)
+	return components.FormatMoney(
+		int64(p.payment.AmountMinor),
+		p.payment.Currency,
+	) + " · " + p.project.Name
 }
 
 func (p paymentItem) Description() string {

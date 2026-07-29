@@ -23,6 +23,7 @@ type projectItem struct {
 	project storage.Project
 	rate    storage.Rate
 	balance map[string]int64
+	tracked time.Duration
 }
 
 func (p projectItem) Title() string {
@@ -30,11 +31,6 @@ func (p projectItem) Title() string {
 }
 
 func (p projectItem) Description() string {
-	description := fmt.Sprintf(
-		"%s Rate · %s/h",
-		p.rate.Name,
-		components.FormatMoney(int64(p.rate.AmountMinor), p.rate.Currency),
-	)
 	currencies := make([]string, 0, len(p.balance))
 	for currency := range p.balance {
 		currencies = append(currencies, currency)
@@ -44,10 +40,20 @@ func (p projectItem) Description() string {
 	for i, currency := range currencies {
 		balances[i] = components.FormatMoney(p.balance[currency], currency)
 	}
+	parts := make([]string, 0, 4)
 	if len(balances) > 0 {
-		description += " · balance " + strings.Join(balances, ", ")
+		parts = append(parts, strings.Join(balances, ", ")+" outstanding")
 	}
-	return description
+	parts = append(
+		parts,
+		components.FormatDuration(p.tracked)+" tracked",
+		fmt.Sprintf(
+			"%s Rate · %s/h",
+			p.rate.Name,
+			components.FormatMoney(int64(p.rate.AmountMinor), p.rate.Currency),
+		),
+	)
+	return strings.Join(parts, " · ")
 }
 
 func (p projectItem) FilterValue() string {
@@ -65,6 +71,7 @@ func projectItems(
 		ratesByID[rate.ID] = rate
 	}
 	balances := make(map[int]map[string]int64, len(projects))
+	tracked := make(map[int]time.Duration, len(projects))
 	for _, project := range projects {
 		balances[project.ID] = map[string]int64{
 			ratesByID[project.RateID].Currency: 0,
@@ -83,6 +90,7 @@ func projectItems(
 			continue
 		}
 		seconds := int64(entry.EndedAt.Sub(entry.StartedAt) / time.Second)
+		tracked[*entry.ProjectID] += entry.EndedAt.Sub(entry.StartedAt)
 		projectBalances[rate.Currency] +=
 			int64(rate.AmountMinor) * seconds / 3600
 	}
@@ -99,6 +107,7 @@ func projectItems(
 			project: project,
 			rate:    ratesByID[project.RateID],
 			balance: balances[project.ID],
+			tracked: tracked[project.ID],
 		}
 	}
 	return items
