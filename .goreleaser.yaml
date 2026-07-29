@@ -23,7 +23,8 @@ builds:
       - -X main.version={{.Version}}
 
 archives:
-  - formats:
+  - name_template: "chansat_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
       - tar.gz
     format_overrides:
       - goos: windows
