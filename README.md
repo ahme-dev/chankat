@@ -10,6 +10,17 @@
 
 Track your work hours across tasks, projects and rates from your terminal. Keyboard first, minimal, no lock-in.
 
+## Releases
+
+Merges to `main` are released from [Conventional Commits](https://www.conventionalcommits.org/):
+
+- `fix:` creates a patch release.
+- `feat:` creates a minor release.
+- `BREAKING CHANGE:` creates a major release.
+- Other commit types do not create a release.
+
+Release archives are built for Linux, macOS and Windows.
+
 ## Screenshots
 
 | Tasks | Payments |
