@@ -19,6 +19,14 @@ func NormalizeCurrency(currency string) (string, error) {
 	return currency, nil
 }
 
+func NormalizeName(name, field string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("%s is required", field)
+	}
+	return name, nil
+}
+
 func ValidateAmountMinor(amountMinor int) error {
 	if amountMinor < 0 {
 		return fmt.Errorf("amount must be non-negative")

@@ -44,25 +44,43 @@ func (s *Storage) GetProject(ctx context.Context, id int) (Project, error) {
 }
 
 func (s *Storage) CreateProject(ctx context.Context, project Project) error {
+	_, err := s.CreateProjectID(ctx, project)
+	return err
+}
+
+func (s *Storage) CreateProjectID(ctx context.Context, project Project) (int, error) {
+	name, err := NormalizeName(project.Name, "name")
+	if err != nil {
+		return 0, fmt.Errorf("create project: %w", err)
+	}
 	const query = `
 		INSERT INTO PROJECT (NAME, RATE_ID)
 		VALUES ($1, $2)
 	`
 
-	if _, err := s.db.ExecContext(ctx, query, project.Name, project.RateID); err != nil {
-		return fmt.Errorf("create project: %w", err)
+	result, err := s.db.ExecContext(ctx, query, name, project.RateID)
+	if err != nil {
+		return 0, fmt.Errorf("create project: %w", err)
 	}
-	return nil
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("get created project ID: %w", err)
+	}
+	return int(id), nil
 }
 
 func (s *Storage) UpdateProject(ctx context.Context, project Project) error {
+	name, err := NormalizeName(project.Name, "name")
+	if err != nil {
+		return fmt.Errorf("update project: %w", err)
+	}
 	const query = `
 		UPDATE PROJECT
 		SET NAME = $1, RATE_ID = $2
 		WHERE ID = $3
 	`
 
-	result, err := s.db.ExecContext(ctx, query, project.Name, project.RateID, project.ID)
+	result, err := s.db.ExecContext(ctx, query, name, project.RateID, project.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}

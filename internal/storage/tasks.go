@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -45,15 +46,29 @@ func (s *Storage) GetTask(ctx context.Context, id int) (Task, error) {
 }
 
 func (s *Storage) CreateTask(ctx context.Context, task Task) error {
+	_, err := s.CreateTaskID(ctx, task)
+	return err
+}
+
+func (s *Storage) CreateTaskID(ctx context.Context, task Task) (int, error) {
+	name, err := NormalizeName(task.Name, "name")
+	if err != nil {
+		return 0, fmt.Errorf("create task: %w", err)
+	}
 	const query = `
 		INSERT INTO TASK (NAME, PROJECT_ID)
 		VALUES ($1, $2)
 	`
 
-	if _, err := s.db.ExecContext(ctx, query, task.Name, task.ProjectID); err != nil {
-		return fmt.Errorf("create task: %w", err)
+	result, err := s.db.ExecContext(ctx, query, name, task.ProjectID)
+	if err != nil {
+		return 0, fmt.Errorf("create task: %w", err)
 	}
-	return nil
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("get created task ID: %w", err)
+	}
+	return int(id), nil
 }
 
 func (s *Storage) CreateTaskAndStart(
@@ -69,13 +84,26 @@ func (s *Storage) CreateTaskAndEntry(
 	task Task,
 	entry Entry,
 ) error {
+	_, err := s.CreateTaskAndEntryID(ctx, task, entry)
+	return err
+}
+
+func (s *Storage) CreateTaskAndEntryID(
+	ctx context.Context,
+	task Task,
+	entry Entry,
+) (int, error) {
+	name, err := NormalizeName(task.Name, "name")
+	if err != nil {
+		return 0, fmt.Errorf("create task entry: %w", err)
+	}
 	if err := ValidateEntryTimes(entry.StartedAt, entry.EndedAt); err != nil {
-		return fmt.Errorf("create task entry: %w", err)
+		return 0, fmt.Errorf("create task entry: %w", err)
 	}
 
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin task entry: %w", err)
+		return 0, fmt.Errorf("begin task entry: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -87,23 +115,23 @@ func (s *Storage) CreateTaskAndEntry(
 		task.ProjectID,
 	); err != nil {
 		if err == sql.ErrNoRows {
-			return fmt.Errorf("project %d not found", task.ProjectID)
+			return 0, fmt.Errorf("project %d not found", task.ProjectID)
 		}
-		return fmt.Errorf("get project rate: %w", err)
+		return 0, fmt.Errorf("get project rate: %w", err)
 	}
 
 	result, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO TASK (NAME, PROJECT_ID) VALUES ($1, $2)`,
-		task.Name,
+		name,
 		task.ProjectID,
 	)
 	if err != nil {
-		return fmt.Errorf("create task: %w", err)
+		return 0, fmt.Errorf("create task: %w", err)
 	}
 	taskID, err := result.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("get created task ID: %w", err)
+		return 0, fmt.Errorf("get created task ID: %w", err)
 	}
 
 	if _, err := tx.ExecContext(
@@ -117,25 +145,95 @@ func (s *Storage) CreateTaskAndEntry(
 		rateID,
 		entry.StartedAt.Unix(),
 		unixTime(entry.EndedAt),
-		entry.Note,
+		strings.TrimSpace(entry.Note),
 	); err != nil {
-		return fmt.Errorf("create task entry: %w", err)
+		return 0, fmt.Errorf("create task entry: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit task start: %w", err)
+		return 0, fmt.Errorf("commit task start: %w", err)
 	}
-	return nil
+	return int(taskID), nil
+}
+
+func (s *Storage) CreateEntryForTask(
+	ctx context.Context,
+	taskID int,
+	startedAt time.Time,
+	endedAt *time.Time,
+	note string,
+) error {
+	_, err := s.CreateEntryForTaskID(ctx, taskID, startedAt, endedAt, note)
+	return err
+}
+
+func (s *Storage) CreateEntryForTaskID(
+	ctx context.Context,
+	taskID int,
+	startedAt time.Time,
+	endedAt *time.Time,
+	note string,
+) (int, error) {
+	if err := ValidateEntryTimes(startedAt, endedAt); err != nil {
+		return 0, fmt.Errorf("create task entry: %w", err)
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin task entry: %w", err)
+	}
+	defer tx.Rollback()
+
+	var task struct {
+		ProjectID int `db:"project_id"`
+		RateID    int `db:"rate_id"`
+	}
+	if err := tx.GetContext(ctx, &task, `
+		SELECT TASK.PROJECT_ID AS project_id, PROJECT.RATE_ID AS rate_id
+		FROM TASK
+		JOIN PROJECT ON PROJECT.ID = TASK.PROJECT_ID
+		WHERE TASK.ID = $1
+	`, taskID); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("task %d not found", taskID)
+		}
+		return 0, fmt.Errorf("get task project and rate: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO ENTRY (
+			TASK_ID, PROJECT_ID, RATE_ID, STARTED_AT, ENDED_AT, NOTES
+		)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, taskID, task.ProjectID, task.RateID, startedAt.Unix(), unixTime(endedAt),
+		strings.TrimSpace(note))
+	if err != nil {
+		return 0, fmt.Errorf("create task entry: %w", err)
+	}
+	entryID, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("get created entry ID: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit task entry: %w", err)
+	}
+	return int(entryID), nil
+}
+
+func (s *Storage) StartTask(ctx context.Context, taskID int, startedAt time.Time) error {
+	return s.CreateEntryForTask(ctx, taskID, startedAt, nil, "")
 }
 
 func (s *Storage) UpdateTask(ctx context.Context, task Task) error {
+	name, err := NormalizeName(task.Name, "name")
+	if err != nil {
+		return fmt.Errorf("update task: %w", err)
+	}
 	const query = `
 		UPDATE TASK
 		SET NAME = $1, PROJECT_ID = $2
 		WHERE ID = $3
 	`
 
-	result, err := s.db.ExecContext(ctx, query, task.Name, task.ProjectID, task.ID)
+	result, err := s.db.ExecContext(ctx, query, name, task.ProjectID, task.ID)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}

@@ -199,6 +199,46 @@ func TestPauseEntry(t *testing.T) {
 	})
 }
 
+func TestPauseAllEntries(t *testing.T) {
+	stor := fixtureStorage(t)
+	ctx := t.Context()
+	project := fixtureProject(t, stor)
+	taskID, projectID, rateID := 1, project.ID, project.RateID
+	if err := stor.CreateTask(ctx, storage.Task{
+		ID: taskID, Name: "task", ProjectID: project.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	endedAt := time.Unix(1_700_000_000, 0)
+	for _, startedAt := range []time.Time{
+		endedAt.Add(-2 * time.Hour),
+		endedAt.Add(-time.Hour),
+		endedAt.Add(time.Hour),
+	} {
+		if err := stor.CreateEntry(ctx, storage.Entry{
+			TaskID: &taskID, ProjectID: &projectID, RateID: &rateID,
+			StartedAt: startedAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	count, err := stor.PauseAllEntries(ctx, endedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("paused %d entries, want 2", count)
+	}
+	active, err := stor.GetActiveEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || !active[0].StartedAt.Equal(endedAt.Add(time.Hour)) {
+		t.Fatalf("unexpected active entries: %#v", active)
+	}
+}
+
 func TestDeleteEntry(t *testing.T) {
 	t.Run("existing entry", func(t *testing.T) {
 		stor := fixtureStorage(t)

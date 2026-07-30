@@ -222,7 +222,7 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			case dashboardTaskRow:
 				if item, ok := m.taskPage.Selected(); ok {
 					return m, startTaskEntry(
-						m.ctx, m.stor, item.task, m.projectList, m.now,
+						m.ctx, m.stor, item.task, m.now,
 					)
 				}
 			}
@@ -281,7 +281,7 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 					return m, nil
 				}
 				return m, startTaskEntry(
-					m.ctx, m.stor, item.task, m.projectList, m.now,
+					m.ctx, m.stor, item.task, m.now,
 				)
 			}
 			return m.openSelectedTask()
@@ -552,25 +552,10 @@ func startTaskEntry(
 	ctx context.Context,
 	stor *storage.Storage,
 	task storage.Task,
-	projects []storage.Project,
 	startedAt time.Time,
 ) tea.Cmd {
 	return func() tea.Msg {
-		var rateID int
-		for _, project := range projects {
-			if project.ID == task.ProjectID {
-				rateID = project.RateID
-				break
-			}
-		}
-		taskID := task.ID
-		projectID := task.ProjectID
-		if err := stor.CreateEntry(ctx, storage.Entry{
-			TaskID:    &taskID,
-			ProjectID: &projectID,
-			RateID:    &rateID,
-			StartedAt: startedAt,
-		}); err != nil {
+		if err := stor.StartTask(ctx, task.ID, startedAt); err != nil {
 			return entryStartFailedMsg{err: err}
 		}
 		return entryStartedMsg{}
@@ -954,72 +939,47 @@ func taskItems(
 	entries []storage.Entry,
 	rates []storage.Rate,
 ) []taskItem {
-	projectsByID := make(map[int]storage.Project, len(projects))
-	for _, project := range projects {
-		projectsByID[project.ID] = project
-	}
-	ratesByID := make(map[int]storage.Rate, len(rates))
-	for _, rate := range rates {
-		ratesByID[rate.ID] = rate
-	}
-	active := make(map[int]bool)
-	latest := make(map[int]storage.Entry)
-	for _, entry := range entries {
-		if entry.TaskID == nil {
-			continue
-		}
-		if entry.EndedAt == nil {
-			active[*entry.TaskID] = true
-			continue
-		}
-		previous, ok := latest[*entry.TaskID]
-		if !ok ||
-			entry.EndedAt.After(*previous.EndedAt) ||
-			entry.EndedAt.Equal(*previous.EndedAt) && entry.ID > previous.ID {
-			latest[*entry.TaskID] = entry
-		}
-	}
-
-	ordered := make([]storage.Task, 0, len(tasks))
-	for _, task := range tasks {
-		if !active[task.ID] {
-			ordered = append(ordered, task)
+	summaries := storage.SummarizeTasks(
+		tasks, projects, entries, rates, time.Time{},
+	)
+	ordered := make([]storage.TaskSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		if !summary.Active {
+			ordered = append(ordered, summary)
 		}
 	}
 	sort.SliceStable(ordered, func(i, j int) bool {
-		left, leftOK := latest[ordered[i].ID]
-		right, rightOK := latest[ordered[j].ID]
+		left, right := ordered[i], ordered[j]
+		leftOK := left.LastEndedAt != nil
+		rightOK := right.LastEndedAt != nil
 		if leftOK != rightOK {
 			return leftOK
 		}
 		if !leftOK {
 			return false
 		}
-		if !left.EndedAt.Equal(*right.EndedAt) {
-			return left.EndedAt.After(*right.EndedAt)
+		if !left.LastEndedAt.Equal(*right.LastEndedAt) {
+			return left.LastEndedAt.After(*right.LastEndedAt)
 		}
-		return left.ID > right.ID
+		return left.LastEntryID > right.LastEntryID
 	})
 
 	items := make([]taskItem, 0, len(ordered))
-	for _, task := range ordered {
-		project := projectsByID[task.ProjectID]
-		description := project.Name
-		if entry, ok := latest[task.ID]; ok {
-			duration, amounts := taskTotals(
-				entries,
-				ratesByID,
-				task.ID,
-				time.Time{},
-			)
-			description += " · total " + components.FormatDuration(duration)
-			if amount := formatTaskAmounts(amounts); amount != "" {
+	for _, summary := range ordered {
+		description := summary.Project.Name
+		if summary.LastEndedAt != nil {
+			description += " · total " +
+				components.FormatDuration(summary.Tracked)
+			if amount := formatTaskAmounts(summary.EarnedMinor); amount != "" {
 				description += " · " + amount + " earned"
 			}
-			description += " · worked " + components.FormatDate(*entry.EndedAt)
+			description += " · worked " +
+				components.FormatDate(*summary.LastEndedAt)
 		}
 		items = append(items, taskItem{
-			task: task, project: project, description: description,
+			task:        summary.Task,
+			project:     summary.Project,
+			description: description,
 		})
 	}
 	return items
@@ -1031,36 +991,7 @@ func taskTotals(
 	taskID int,
 	now time.Time,
 ) (time.Duration, map[string]int64) {
-	var duration time.Duration
-	minorSeconds := make(map[string]int64)
-	for _, entry := range entries {
-		if entry.TaskID == nil || *entry.TaskID != taskID {
-			continue
-		}
-		endedAt := now
-		if entry.EndedAt != nil {
-			endedAt = *entry.EndedAt
-		}
-		elapsed := endedAt.Sub(entry.StartedAt)
-		if elapsed < 0 {
-			elapsed = 0
-		}
-		duration += elapsed
-		if entry.RateID == nil {
-			continue
-		}
-		rate, ok := rates[*entry.RateID]
-		if !ok {
-			continue
-		}
-		seconds := int64(elapsed / time.Second)
-		minorSeconds[rate.Currency] += int64(rate.AmountMinor) * seconds
-	}
-	amounts := make(map[string]int64, len(minorSeconds))
-	for currency, total := range minorSeconds {
-		amounts[currency] = total / 3600
-	}
-	return duration, amounts
+	return storage.TaskTotals(entries, rates, taskID, now)
 }
 
 func formatTaskAmounts(amounts map[string]int64) string {

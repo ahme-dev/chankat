@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -59,12 +60,17 @@ func (s *Storage) GetPayment(ctx context.Context, id int) (Payment, error) {
 }
 
 func (s *Storage) CreatePayment(ctx context.Context, payment Payment) error {
+	_, err := s.CreatePaymentID(ctx, payment)
+	return err
+}
+
+func (s *Storage) CreatePaymentID(ctx context.Context, payment Payment) (int, error) {
 	if err := validatePayment(payment); err != nil {
-		return fmt.Errorf("create payment: %w", err)
+		return 0, fmt.Errorf("create payment: %w", err)
 	}
 	currency, err := NormalizeCurrency(payment.Currency)
 	if err != nil {
-		return fmt.Errorf("create payment: %w", err)
+		return 0, fmt.Errorf("create payment: %w", err)
 	}
 
 	const query = `
@@ -79,7 +85,7 @@ func (s *Storage) CreatePayment(ctx context.Context, payment Payment) error {
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
-	if _, err := s.db.ExecContext(
+	result, err := s.db.ExecContext(
 		ctx,
 		query,
 		payment.ProjectID,
@@ -87,11 +93,16 @@ func (s *Storage) CreatePayment(ctx context.Context, payment Payment) error {
 		currency,
 		payment.PaidAt.Unix(),
 		payment.PaidForDate.Unix(),
-		payment.Note,
-	); err != nil {
-		return fmt.Errorf("create payment: %w", err)
+		strings.TrimSpace(payment.Note),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("create payment: %w", err)
 	}
-	return nil
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("get created payment ID: %w", err)
+	}
+	return int(id), nil
 }
 
 func (s *Storage) UpdatePayment(ctx context.Context, payment Payment) error {
@@ -123,7 +134,7 @@ func (s *Storage) UpdatePayment(ctx context.Context, payment Payment) error {
 		currency,
 		payment.PaidAt.Unix(),
 		payment.PaidForDate.Unix(),
-		payment.Note,
+		strings.TrimSpace(payment.Note),
 		payment.ID,
 	)
 	if err != nil {
