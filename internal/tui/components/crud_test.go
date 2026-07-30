@@ -69,6 +69,13 @@ func TestCRUDPage(t *testing.T) {
 		}
 	})
 
+	t.Run("opens supplied form", func(t *testing.T) {
+		updated, cmd := page.OpenForm(form())
+		if updated.form == nil || cmd == nil {
+			t.Fatal("supplied form was not opened")
+		}
+	})
+
 	t.Run("escape closes form", func(t *testing.T) {
 		updated, _ := page.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 		updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})

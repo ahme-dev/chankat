@@ -6,7 +6,10 @@ import (
 	"time"
 )
 
-const DateLayout = "2006-01-02"
+const (
+	DateLayout     = "2006-01-02"
+	DateTimeLayout = "2006-01-02 15:04"
+)
 
 type currencyFormat struct {
 	symbol     string
@@ -74,6 +77,10 @@ func groupMoneyDigits(amount string) string {
 
 func FormatDate(value time.Time) string {
 	return value.Format(DateLayout)
+}
+
+func FormatDateTime(value time.Time) string {
+	return value.Format(DateTimeLayout)
 }
 
 func FormatDuration(duration time.Duration) string {

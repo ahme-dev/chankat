@@ -73,6 +73,38 @@ func TestDashboardTasksByRecentEntry(t *testing.T) {
 	}
 }
 
+func TestDashboardHistoricalEntryDoesNotBecomeLatest(t *testing.T) {
+	taskOne := 1
+	taskTwo := 2
+	projectID := 1
+	now := time.Now()
+	older := now.Add(-7 * 24 * time.Hour)
+	tasks := []storage.Task{
+		{ID: taskOne, Name: "one", ProjectID: projectID},
+		{ID: taskTwo, Name: "two", ProjectID: projectID},
+	}
+	entries := []storage.Entry{
+		{
+			ID: 1, TaskID: &taskOne,
+			StartedAt: now.Add(-time.Hour), EndedAt: &now,
+		},
+		{
+			ID: 2, TaskID: &taskTwo,
+			StartedAt: older.Add(-time.Hour), EndedAt: &older,
+		},
+	}
+
+	items := taskItems(
+		tasks,
+		[]storage.Project{{ID: projectID, Name: "project"}},
+		entries,
+		nil,
+	)
+	if got := items[0].task.ID; got != taskOne {
+		t.Fatalf("got first task %d, want task with latest worked time", got)
+	}
+}
+
 func TestDashboardResumedTaskTotals(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	previousEnd := now.Add(-30 * time.Minute)
@@ -218,5 +250,102 @@ func TestDashboardViewportHeight(t *testing.T) {
 
 	if got := len(strings.Split(m.View(), "\n")); got != 5 {
 		t.Fatalf("got dashboard height %d, want 5", got)
+	}
+}
+
+func TestDashboardTaskDetail(t *testing.T) {
+	task := storage.Task{ID: 1, Name: "task", ProjectID: 2}
+	m := NewDashboard(t.Context(), nil)
+	m.loading = false
+	m.focus = dashboardTaskRow
+	m.projectList = []storage.Project{{ID: 2, Name: "project", RateID: 3}}
+	m.taskList = []storage.Task{task}
+	m.projects = map[int]string{2: "project"}
+	m.taskPage.SetItems([]taskItem{{
+		task: task, project: m.projectList[0],
+	}})
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if updated.detailTask == nil || updated.detailTask.ID != task.ID {
+		t.Fatal("enter did not open task details")
+	}
+	if updated.entryPage == nil || cmd == nil {
+		t.Fatal("task details did not initialize the entry list")
+	}
+	if !strings.Contains(updated.Actions(), "[n] add time") {
+		t.Fatalf("unexpected detail actions: %q", updated.Actions())
+	}
+
+	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if updated.detailTask != nil || updated.entryPage != nil {
+		t.Fatal("escape did not close task details")
+	}
+}
+
+func TestDashboardEditsActiveTask(t *testing.T) {
+	task := storage.Task{ID: 1, Name: "active", ProjectID: 2}
+	taskID := task.ID
+	m := NewDashboard(t.Context(), nil)
+	m.loading = false
+	m.projectList = []storage.Project{{ID: 2, Name: "project", RateID: 3}}
+	m.taskList = []storage.Task{task}
+	m.entries = []storage.Entry{{
+		ID: 4, TaskID: &taskID, StartedAt: time.Now(),
+	}}
+	m.refreshTables()
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if !updated.taskPage.FormActive() || cmd == nil {
+		t.Fatal("edit did not open the active task form")
+	}
+}
+
+func TestEntryItems(t *testing.T) {
+	taskID := 1
+	otherTaskID := 2
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.Local)
+	earlierEnd := now.Add(-time.Hour)
+	entries := []storage.Entry{
+		{
+			ID: 1, TaskID: &taskID,
+			StartedAt: now.Add(-2 * time.Hour), EndedAt: &earlierEnd,
+			Note: "earlier",
+		},
+		{
+			ID: 2, TaskID: &otherTaskID,
+			StartedAt: now.Add(-30 * time.Minute),
+		},
+		{
+			ID: 3, TaskID: &taskID,
+			StartedAt: now.Add(-15 * time.Minute),
+		},
+	}
+
+	items := entryItems(entries, taskID, now)
+	if len(items) != 2 || items[0].entry.ID != 3 || items[1].entry.ID != 1 {
+		t.Fatalf("unexpected entry order: %#v", items)
+	}
+	if !strings.Contains(items[0].Title(), "active") {
+		t.Fatalf("active entry title missing status: %q", items[0].Title())
+	}
+	if !strings.Contains(items[1].Description(), "earlier") {
+		t.Fatalf("entry description missing note: %q", items[1].Description())
+	}
+}
+
+func TestEntryEndTime(t *testing.T) {
+	startedAt := "2026-07-30 10:00"
+	validate := entryEndTime(&startedAt, false)
+	if err := validate("2026-07-30 11:00"); err != nil {
+		t.Fatalf("valid interval rejected: %v", err)
+	}
+	if err := validate("2026-07-30 09:00"); err == nil {
+		t.Fatal("end before start accepted")
+	}
+	if err := validate(""); err == nil {
+		t.Fatal("required end accepted as blank")
+	}
+	if err := entryEndTime(&startedAt, true)(""); err != nil {
+		t.Fatalf("optional end rejected as blank: %v", err)
 	}
 }
