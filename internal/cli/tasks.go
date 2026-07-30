@@ -26,7 +26,7 @@ func (r runner) runTasks(args []string) error {
 	case "start":
 		return r.startTask(args[1:])
 	case "help", "-h", "--help":
-		fmt.Fprintln(r.out, "Usage: chankat tasks list|get|create|update|delete|start")
+		r.help([]string{"tasks"})
 		return nil
 	default:
 		return fmt.Errorf("unknown tasks command %q", args[0])
@@ -54,7 +54,7 @@ func (r runner) loadTasks() ([]storage.TaskSummary, error) {
 }
 
 func (r runner) listTasks(args []string) error {
-	flags := r.flags("tasks list", "Usage: chankat tasks list [--active]")
+	flags := r.flags("tasks", "list")
 	activeOnly := flags.Bool("active", false, "show only actively tracked tasks")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -122,12 +122,7 @@ func (r runner) getTask(args []string) error {
 }
 
 func (r runner) createTask(args []string) error {
-	flags := r.flags("tasks create", `Usage: chankat tasks create --name NAME --project ID [entry options]
-Entry options:
-  --start                  start tracking now
-  --started-at TIME        start an entry at TIME
-  --ended-at TIME          end the entry at TIME
-  --note TEXT              entry note`)
+	flags := r.flags("tasks", "create")
 	name := flags.String("name", "", "task name")
 	projectID := flags.Int("project", 0, "project ID")
 	start := flags.Bool("start", false, "start tracking now")
@@ -198,8 +193,7 @@ func (r runner) updateTask(args []string) error {
 	if err != nil {
 		return err
 	}
-	flags := r.flags("tasks update",
-		"Usage: chankat tasks update ID [--name NAME] [--project ID]")
+	flags := r.flags("tasks", "update")
 	name := flags.String("name", task.Name, "task name")
 	projectID := flags.Int("project", task.ProjectID, "project ID")
 	if err := flags.Parse(args[1:]); err != nil {
@@ -240,8 +234,7 @@ func (r runner) startTask(args []string) error {
 	if err != nil {
 		return err
 	}
-	flags := r.flags("tasks start",
-		"Usage: chankat tasks start ID [--at TIME]")
+	flags := r.flags("tasks", "start")
 	at := flags.String("at", "", "RFC3339 or YYYY-MM-DD HH:MM")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err

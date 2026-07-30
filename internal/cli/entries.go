@@ -25,7 +25,7 @@ func (r runner) runEntries(args []string) error {
 	case "stop":
 		return r.stopEntry(args[1:])
 	case "help", "-h", "--help":
-		fmt.Fprintln(r.out, "Usage: chankat entries list|get|create|update|delete|stop")
+		r.help([]string{"entries"})
 		return nil
 	default:
 		return fmt.Errorf("unknown entries command %q", args[0])
@@ -33,8 +33,7 @@ func (r runner) runEntries(args []string) error {
 }
 
 func (r runner) listEntries(args []string) error {
-	flags := r.flags("entries list",
-		"Usage: chankat entries list [--task ID] [--active]")
+	flags := r.flags("entries", "list")
 	taskID := flags.Int("task", 0, "filter by task ID")
 	active := flags.Bool("active", false, "show only active entries")
 	if err := flags.Parse(args); err != nil {
@@ -101,9 +100,7 @@ func (r runner) getEntry(args []string) error {
 }
 
 func (r runner) createEntry(args []string) error {
-	flags := r.flags("entries create", `Usage: chankat entries create --task ID --started-at TIME [options]
-  --ended-at TIME
-  --note TEXT`)
+	flags := r.flags("entries", "create")
 	taskID := flags.Int("task", 0, "task ID")
 	startedAt := flags.String("started-at", "", "RFC3339 or YYYY-MM-DD HH:MM")
 	endedAt := flags.String("ended-at", "", "RFC3339 or YYYY-MM-DD HH:MM")
@@ -154,8 +151,7 @@ func (r runner) updateEntry(args []string) error {
 	if entry.EndedAt != nil {
 		endedDefault = entry.EndedAt.Format(time.RFC3339)
 	}
-	flags := r.flags("entries update", `Usage: chankat entries update ID [options]
-An empty --ended-at value makes the entry active.`)
+	flags := r.flags("entries", "update")
 	startedAt := flags.String("started-at", entry.StartedAt.Format(time.RFC3339),
 		"RFC3339 or YYYY-MM-DD HH:MM")
 	endedAt := flags.String("ended-at", endedDefault,

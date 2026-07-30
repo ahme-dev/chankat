@@ -58,7 +58,12 @@ func RequiresStorage(args []string) bool {
 	if len(filtered) == 0 {
 		return false
 	}
-	if filtered[0] == "version" || filtered[0] == "help" {
+	if filtered[0] == "__complete" {
+		return completionNeedsStorage(filtered[1:])
+	}
+	if filtered[0] == "version" ||
+		filtered[0] == "help" ||
+		filtered[0] == "completion" {
 		return false
 	}
 	if len(filtered) > 1 && filtered[1] == "help" {
@@ -81,6 +86,9 @@ func (r runner) run(args []string) error {
 		r.usage()
 		return nil
 	}
+	if args[0] == "__complete" {
+		return r.complete(args[1:])
+	}
 	if hasHelpFlag(args) {
 		r.help(args)
 		return nil
@@ -100,6 +108,8 @@ func (r runner) run(args []string) error {
 		}
 		_, err := fmt.Fprintf(r.out, "chankat %s\n", r.version)
 		return err
+	case "completion":
+		return r.runCompletion(args[1:])
 	case "rates":
 		return r.runRates(args[1:])
 	case "projects":
@@ -138,80 +148,59 @@ func (r runner) help(args []string) {
 		r.usage()
 		return
 	}
-	resourceHelp := map[string]string{
-		"rates":    "list|get|create|update|delete",
-		"projects": "list|get|create|update|delete",
-		"tasks":    "list|get|create|update|delete|start",
-		"entries":  "list|get|create|update|delete|stop",
-		"payments": "list|get|create|update|delete",
+	if command[0] == "completion" {
+		fmt.Fprintln(r.out, "Usage: chankat completion bash")
+		return
 	}
 	if len(command) == 1 {
-		if actions, ok := resourceHelp[command[0]]; ok {
-			fmt.Fprintf(r.out, "Usage: chankat %s %s\n", command[0], actions)
+		if resource, ok := commandSpecs[command[0]]; ok {
+			fmt.Fprintf(
+				r.out,
+				"Usage: chankat %s %s\n",
+				command[0],
+				strings.Join(resource.actions, "|"),
+			)
 			return
 		}
 		r.usage()
 		return
 	}
-	usages := map[string]string{
-		"rates list":      "chankat rates list",
-		"rates get":       "chankat rates get ID",
-		"rates create":    "chankat rates create --name NAME --amount-minor N --currency CODE",
-		"rates update":    "chankat rates update ID [--name NAME] [--amount-minor N] [--currency CODE]",
-		"rates delete":    "chankat rates delete ID",
-		"projects list":   "chankat projects list",
-		"projects get":    "chankat projects get ID",
-		"projects create": "chankat projects create --name NAME --rate ID",
-		"projects update": "chankat projects update ID [--name NAME] [--rate ID]",
-		"projects delete": "chankat projects delete ID",
-		"tasks list":      "chankat tasks list [--active]",
-		"tasks get":       "chankat tasks get ID",
-		"tasks create":    "chankat tasks create --name NAME --project ID [--start | --started-at TIME [--ended-at TIME]] [--note TEXT]",
-		"tasks update":    "chankat tasks update ID [--name NAME] [--project ID]",
-		"tasks delete":    "chankat tasks delete ID",
-		"tasks start":     "chankat tasks start ID [--at TIME]",
-		"entries list":    "chankat entries list [--task ID] [--active]",
-		"entries get":     "chankat entries get ID",
-		"entries create":  "chankat entries create --task ID --started-at TIME [--ended-at TIME] [--note TEXT]",
-		"entries update":  "chankat entries update ID [--started-at TIME] [--ended-at TIME] [--note TEXT]",
-		"entries delete":  "chankat entries delete ID",
-		"entries stop":    "chankat entries stop ID | chankat entries stop --all",
-		"payments list":   "chankat payments list",
-		"payments get":    "chankat payments get ID",
-		"payments create": "chankat payments create --project ID --amount-minor N --currency CODE [--paid-at DATE] [--paid-for DATE] [--note TEXT]",
-		"payments update": "chankat payments update ID [--project ID] [--amount-minor N] [--currency CODE] [--paid-at DATE] [--paid-for DATE] [--note TEXT]",
-		"payments delete": "chankat payments delete ID",
+	if spec, ok := commandSpecs[command[0]]; ok {
+		if action, ok := spec.commands[command[1]]; ok {
+			fmt.Fprintln(r.out, "Usage: "+action.usage)
+			return
+		}
 	}
-	key := strings.Join(command, " ")
-	if usage, ok := usages[key]; ok {
-		fmt.Fprintln(r.out, "Usage: "+usage)
-		return
-	}
-	fmt.Fprintf(r.out, "unknown command %q\n", key)
+	fmt.Fprintf(r.out, "unknown command %q\n", strings.Join(command, " "))
 }
 
 func (r runner) usage() {
 	fmt.Fprint(r.out, `Usage:
   chankat                         launch the terminal interface
   chankat [--json] <resource> <command> [options]
+  chankat completion bash
   chankat version
 
 Resources:
-  rates       list, get, create, update, delete
-  projects    list, get, create, update, delete
-  tasks       list, get, create, update, delete, start
-  entries     list, get, create, update, delete, stop
-  payments    list, get, create, update, delete
-
+`)
+	for _, name := range resourceOrder {
+		resource := commandSpecs[name]
+		fmt.Fprintf(r.out, "  %-12s%s\n", name, strings.Join(resource.actions, ", "))
+	}
+	fmt.Fprint(r.out, `
 Run 'chankat <resource> <command> --help' for command options.
 `)
 }
 
-func (r runner) flags(name, usage string) *flag.FlagSet {
-	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+func (r runner) flags(resource, action string) *flag.FlagSet {
+	spec, ok := command(resource, action)
+	if !ok {
+		panic("unknown command metadata: " + resource + " " + action)
+	}
+	flags := flag.NewFlagSet(resource+" "+action, flag.ContinueOnError)
 	flags.SetOutput(r.errOut)
 	flags.Usage = func() {
-		fmt.Fprintln(r.errOut, usage)
+		fmt.Fprintln(r.errOut, "Usage: "+spec.usage)
 		flags.PrintDefaults()
 	}
 	return flags

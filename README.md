@@ -23,6 +23,10 @@ curl -fsSL https://raw.githubusercontent.com/ahme-dev/chankat/main/install.sh | 
 
 The installer verifies the release checksum and writes to `~/.local/bin`. Set
 `CHANKAT_INSTALL_DIR` or `CHANKAT_VERSION` to override the destination or version.
+It also installs Bash completion under the user's data directory. Set
+`CHANKAT_COMPLETION_DIR` to override that destination. Run
+`chankat completion bash` to print the completion script directly. Completion
+uses the CLI to suggest commands, flags and relevant record IDs.
 
 On windows, please check releases and manually install.
 

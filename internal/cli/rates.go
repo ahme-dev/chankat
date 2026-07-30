@@ -22,7 +22,7 @@ func (r runner) runRates(args []string) error {
 	case "delete":
 		return r.deleteRate(args[1:])
 	case "help", "-h", "--help":
-		fmt.Fprintln(r.out, "Usage: chankat rates list|get|create|update|delete")
+		r.help([]string{"rates"})
 		return nil
 	default:
 		return fmt.Errorf("unknown rates command %q", args[0])
@@ -88,8 +88,7 @@ func (r runner) getRate(args []string) error {
 }
 
 func (r runner) createRate(args []string) error {
-	flags := r.flags("rates create",
-		"Usage: chankat rates create --name NAME --amount-minor N --currency CODE")
+	flags := r.flags("rates", "create")
 	name := flags.String("name", "", "rate name")
 	amount := flags.Int("amount-minor", 0, "hourly amount in minor units")
 	currency := flags.String("currency", "", "three-letter currency code")
@@ -123,8 +122,7 @@ func (r runner) updateRate(args []string) error {
 	if err != nil {
 		return err
 	}
-	flags := r.flags("rates update",
-		"Usage: chankat rates update ID [--name NAME] [--amount-minor N] [--currency CODE]")
+	flags := r.flags("rates", "update")
 	name := flags.String("name", rate.Name, "rate name")
 	amount := flags.Int("amount-minor", rate.AmountMinor, "hourly amount in minor units")
 	currency := flags.String("currency", rate.Currency, "three-letter currency code")

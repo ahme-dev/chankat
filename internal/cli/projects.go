@@ -22,7 +22,7 @@ func (r runner) runProjects(args []string) error {
 	case "delete":
 		return r.deleteProject(args[1:])
 	case "help", "-h", "--help":
-		fmt.Fprintln(r.out, "Usage: chankat projects list|get|create|update|delete")
+		r.help([]string{"projects"})
 		return nil
 	default:
 		return fmt.Errorf("unknown projects command %q", args[0])
@@ -98,8 +98,7 @@ func (r runner) getProject(args []string) error {
 }
 
 func (r runner) createProject(args []string) error {
-	flags := r.flags("projects create",
-		"Usage: chankat projects create --name NAME --rate ID")
+	flags := r.flags("projects", "create")
 	name := flags.String("name", "", "project name")
 	rateID := flags.Int("rate", 0, "rate ID")
 	if err := flags.Parse(args); err != nil {
@@ -132,8 +131,7 @@ func (r runner) updateProject(args []string) error {
 	if err != nil {
 		return err
 	}
-	flags := r.flags("projects update",
-		"Usage: chankat projects update ID [--name NAME] [--rate ID]")
+	flags := r.flags("projects", "update")
 	name := flags.String("name", project.Name, "project name")
 	rateID := flags.Int("rate", project.RateID, "rate ID")
 	if err := flags.Parse(args[1:]); err != nil {

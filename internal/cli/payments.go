@@ -22,7 +22,7 @@ func (r runner) runPayments(args []string) error {
 	case "delete":
 		return r.deletePayment(args[1:])
 	case "help", "-h", "--help":
-		fmt.Fprintln(r.out, "Usage: chankat payments list|get|create|update|delete")
+		r.help([]string{"payments"})
 		return nil
 	default:
 		return fmt.Errorf("unknown payments command %q", args[0])
@@ -95,10 +95,7 @@ func (r runner) getPayment(args []string) error {
 
 func (r runner) createPayment(args []string) error {
 	today := r.now().Format(dateLayout)
-	flags := r.flags("payments create", `Usage: chankat payments create --project ID --amount-minor N --currency CODE [options]
-  --paid-at YYYY-MM-DD
-  --paid-for YYYY-MM-DD
-  --note TEXT`)
+	flags := r.flags("payments", "create")
 	projectID := flags.Int("project", 0, "project ID")
 	amount := flags.Int("amount-minor", 0, "amount in minor units")
 	currency := flags.String("currency", "", "three-letter currency code")
@@ -144,7 +141,7 @@ func (r runner) updatePayment(args []string) error {
 	if err != nil {
 		return err
 	}
-	flags := r.flags("payments update", "Usage: chankat payments update ID [options]")
+	flags := r.flags("payments", "update")
 	projectID := flags.Int("project", payment.ProjectID, "project ID")
 	amount := flags.Int("amount-minor", payment.AmountMinor, "amount in minor units")
 	currency := flags.String("currency", payment.Currency, "three-letter currency code")
