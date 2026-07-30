@@ -59,6 +59,14 @@ func (s *Storage) GetPayment(ctx context.Context, id int) (Payment, error) {
 }
 
 func (s *Storage) CreatePayment(ctx context.Context, payment Payment) error {
+	if err := validatePayment(payment); err != nil {
+		return fmt.Errorf("create payment: %w", err)
+	}
+	currency, err := NormalizeCurrency(payment.Currency)
+	if err != nil {
+		return fmt.Errorf("create payment: %w", err)
+	}
+
 	const query = `
 		INSERT INTO PAYMENT (
 			PROJECT_ID,
@@ -76,7 +84,7 @@ func (s *Storage) CreatePayment(ctx context.Context, payment Payment) error {
 		query,
 		payment.ProjectID,
 		payment.AmountMinor,
-		payment.Currency,
+		currency,
 		payment.PaidAt.Unix(),
 		payment.PaidForDate.Unix(),
 		payment.Note,
@@ -87,6 +95,14 @@ func (s *Storage) CreatePayment(ctx context.Context, payment Payment) error {
 }
 
 func (s *Storage) UpdatePayment(ctx context.Context, payment Payment) error {
+	if err := validatePayment(payment); err != nil {
+		return fmt.Errorf("update payment: %w", err)
+	}
+	currency, err := NormalizeCurrency(payment.Currency)
+	if err != nil {
+		return fmt.Errorf("update payment: %w", err)
+	}
+
 	const query = `
 		UPDATE PAYMENT
 		SET
@@ -104,7 +120,7 @@ func (s *Storage) UpdatePayment(ctx context.Context, payment Payment) error {
 		query,
 		payment.ProjectID,
 		payment.AmountMinor,
-		payment.Currency,
+		currency,
 		payment.PaidAt.Unix(),
 		payment.PaidForDate.Unix(),
 		payment.Note,

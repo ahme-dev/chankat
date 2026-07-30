@@ -126,8 +126,11 @@ func rateForm(
 		form,
 		func(ctx context.Context) error {
 			values.Name = strings.TrimSpace(values.Name)
-			values.AmountMinor, _ = strconv.Atoi(amountMinor)
-			values.Currency = strings.ToUpper(strings.TrimSpace(values.Currency))
+			parsedAmount, err := components.ParseAmountMinor(amountMinor)
+			if err != nil {
+				return err
+			}
+			values.AmountMinor = parsedAmount
 			if rate == nil {
 				return stor.CreateRate(ctx, values)
 			}

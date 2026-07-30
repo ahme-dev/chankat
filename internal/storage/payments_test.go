@@ -29,6 +29,31 @@ func TestCreatePayment(t *testing.T) {
 			t.Fatalf("unexpected payment dates: %#v", payment)
 		}
 	})
+
+	t.Run("rejects invalid financial data", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		project := fixtureProject(t, stor)
+		date := time.Unix(1_706_745_600, 0)
+		tests := []storage.Payment{
+			{
+				ProjectID: project.ID, AmountMinor: -1, Currency: "USD",
+				PaidAt: date, PaidForDate: date,
+			},
+			{
+				ProjectID: project.ID, AmountMinor: 1, Currency: "US1",
+				PaidAt: date, PaidForDate: date,
+			},
+			{
+				ProjectID: project.ID, AmountMinor: 1, Currency: "USD",
+				PaidForDate: date,
+			},
+		}
+		for _, payment := range tests {
+			if err := stor.CreatePayment(t.Context(), payment); err == nil {
+				t.Fatalf("CreatePayment(%#v) succeeded", payment)
+			}
+		}
+	})
 }
 
 func TestGetPayments(t *testing.T) {

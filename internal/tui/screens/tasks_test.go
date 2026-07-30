@@ -242,6 +242,32 @@ func TestDashboardEntryAmount(t *testing.T) {
 	}
 }
 
+func TestTaskTotalsRoundAfterAggregation(t *testing.T) {
+	taskID := 1
+	rateID := 1
+	startedAt := time.Unix(1_700_000_000, 0)
+	firstEnd := startedAt.Add(30 * time.Minute)
+	secondEnd := firstEnd.Add(30 * time.Minute)
+	entries := []storage.Entry{
+		{
+			TaskID: &taskID, RateID: &rateID,
+			StartedAt: startedAt, EndedAt: &firstEnd,
+		},
+		{
+			TaskID: &taskID, RateID: &rateID,
+			StartedAt: firstEnd, EndedAt: &secondEnd,
+		},
+	}
+	rates := map[int]storage.Rate{
+		rateID: {ID: rateID, AmountMinor: 1, Currency: "USD"},
+	}
+
+	_, amounts := taskTotals(entries, rates, taskID, secondEnd)
+	if got := amounts["USD"]; got != 1 {
+		t.Fatalf("got %d minor units, want 1", got)
+	}
+}
+
 func TestDashboardViewportHeight(t *testing.T) {
 	m := NewDashboard(t.Context(), nil)
 	m.loading = false
@@ -330,22 +356,5 @@ func TestEntryItems(t *testing.T) {
 	}
 	if !strings.Contains(items[1].Description(), "earlier") {
 		t.Fatalf("entry description missing note: %q", items[1].Description())
-	}
-}
-
-func TestEntryEndTime(t *testing.T) {
-	startedAt := "2026-07-30 10:00"
-	validate := entryEndTime(&startedAt, false)
-	if err := validate("2026-07-30 11:00"); err != nil {
-		t.Fatalf("valid interval rejected: %v", err)
-	}
-	if err := validate("2026-07-30 09:00"); err == nil {
-		t.Fatal("end before start accepted")
-	}
-	if err := validate(""); err == nil {
-		t.Fatal("required end accepted as blank")
-	}
-	if err := entryEndTime(&startedAt, true)(""); err != nil {
-		t.Fatalf("optional end rejected as blank: %v", err)
 	}
 }

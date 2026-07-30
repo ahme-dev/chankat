@@ -119,6 +119,29 @@ func TestCreateTaskAndEntry(t *testing.T) {
 	}
 }
 
+func TestCreateTaskAndEntryRejectsInvalidRange(t *testing.T) {
+	stor := fixtureStorage(t)
+	project := fixtureProject(t, stor)
+	startedAt := time.Unix(1_700_000_000, 0)
+	endedAt := startedAt.Add(-time.Minute)
+
+	err := stor.CreateTaskAndEntry(
+		t.Context(),
+		storage.Task{Name: "invalid", ProjectID: project.ID},
+		storage.Entry{StartedAt: startedAt, EndedAt: &endedAt},
+	)
+	if err == nil {
+		t.Fatal("task with reversed entry times succeeded")
+	}
+	tasks, getErr := stor.GetTasks(t.Context())
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("invalid entry left %d tasks behind", len(tasks))
+	}
+}
+
 func TestGetTasks(t *testing.T) {
 	t.Run("ordered by ID", func(t *testing.T) {
 		stor := fixtureStorage(t)
