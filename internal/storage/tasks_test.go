@@ -78,6 +78,73 @@ func TestCreateTaskAndStart(t *testing.T) {
 	})
 }
 
+func TestStartTask(t *testing.T) {
+	stor := fixtureStorage(t)
+	ctx := t.Context()
+	project := fixtureProject(t, stor)
+	if err := stor.CreateTask(ctx, storage.Task{
+		Name: "tracked task", ProjectID: project.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Unix(1_700_000_000, 0)
+	if err := stor.StartTask(ctx, 1, startedAt); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := stor.GetActiveEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 ||
+		entries[0].TaskID == nil || *entries[0].TaskID != 1 ||
+		entries[0].ProjectID == nil || *entries[0].ProjectID != project.ID ||
+		entries[0].RateID == nil || *entries[0].RateID != project.RateID {
+		t.Fatalf("unexpected active entries: %#v", entries)
+	}
+
+	if err := stor.StartTask(ctx, 999, startedAt); err == nil {
+		t.Fatal("missing task started")
+	}
+	entries, err = stor.GetEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("failed start created an entry: %#v", entries)
+	}
+}
+
+func TestPauseTask(t *testing.T) {
+	stor := fixtureStorage(t)
+	ctx := t.Context()
+	project := fixtureProject(t, stor)
+	if err := stor.CreateTask(ctx, storage.Task{
+		Name: "tracked task", ProjectID: project.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Unix(1_700_000_000, 0)
+	for range 2 {
+		if err := stor.StartTask(ctx, 1, startedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	endedAt := startedAt.Add(time.Hour)
+	if err := stor.PauseTask(ctx, 1, endedAt); err != nil {
+		t.Fatal(err)
+	}
+	active, err := stor.GetActiveEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("%d entries remain active", len(active))
+	}
+	if err := stor.PauseTask(ctx, 1, endedAt); err == nil {
+		t.Fatal("inactive task stopped")
+	}
+}
+
 func TestCreateTaskAndEntry(t *testing.T) {
 	stor := fixtureStorage(t)
 	ctx := t.Context()

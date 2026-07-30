@@ -5,6 +5,8 @@ set -eu
 repository="ahme-dev/chankat"
 repository_url="https://github.com/$repository"
 install_dir="${CHANKAT_INSTALL_DIR:-$HOME/.local/bin}"
+completion_base="${BASH_COMPLETION_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion}"
+completion_dir="${CHANKAT_COMPLETION_DIR:-$completion_base/completions}"
 
 fail() {
 	printf 'chankat: %s\n' "$1" >&2
@@ -41,6 +43,7 @@ else
 fi
 
 installed_binary="$install_dir/chankat"
+installed_completion="$completion_dir/chankat.bash"
 if [ ! -x "$installed_binary" ] && command -v chankat >/dev/null 2>&1; then
 	installed_binary="$(command -v chankat)"
 fi
@@ -116,8 +119,14 @@ fi
 tar -xzf "$temporary_dir/$archive" -C "$temporary_dir"
 mkdir -p "$install_dir"
 install -m 0755 "$temporary_dir/chankat" "$install_dir/chankat"
+"$install_dir/chankat" completion bash > "$temporary_dir/chankat.bash"
+mkdir -p "$completion_dir"
+install -m 0644 \
+	"$temporary_dir/chankat.bash" \
+	"$installed_completion"
 
 printf 'Installed chankat to %s/chankat\n' "$install_dir"
+printf 'Installed Bash completion to %s\n' "$installed_completion"
 case ":$PATH:" in
 	*":$install_dir:"*) ;;
 	*) printf 'Add %s to PATH to run chankat.\n' "$install_dir" ;;

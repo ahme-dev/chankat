@@ -226,6 +226,59 @@ func TestDashboardKeyboardNavigation(t *testing.T) {
 	})
 }
 
+func TestPauseTaskStopsAllTaskEntries(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	stor, err := storage.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := stor.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := stor.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	if err := stor.CreateRate(ctx, storage.Rate{
+		Name: "rate", AmountMinor: 100, Currency: "USD",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.CreateProject(ctx, storage.Project{
+		Name: "project", RateID: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.CreateTask(ctx, storage.Task{
+		Name: "task", ProjectID: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Unix(1_700_000_000, 0)
+	for range 2 {
+		if err := stor.StartTask(ctx, 1, startedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := stor.GetActiveEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := pauseTask(ctx, stor, entries[0], startedAt.Add(time.Hour))()
+	if _, ok := msg.(taskPausedMsg); !ok {
+		t.Fatalf("unexpected pause result: %#v", msg)
+	}
+	entries, err = stor.GetActiveEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("%d entries remain active", len(entries))
+	}
+}
+
 func TestDashboardEntryAmount(t *testing.T) {
 	rateID := 1
 	m := NewDashboard(t.Context(), nil)

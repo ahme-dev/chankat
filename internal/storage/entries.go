@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -71,8 +72,13 @@ func (s *Storage) GetEntry(ctx context.Context, id int) (Entry, error) {
 }
 
 func (s *Storage) CreateEntry(ctx context.Context, entry Entry) error {
+	_, err := s.CreateEntryID(ctx, entry)
+	return err
+}
+
+func (s *Storage) CreateEntryID(ctx context.Context, entry Entry) (int, error) {
 	if err := ValidateEntryTimes(entry.StartedAt, entry.EndedAt); err != nil {
-		return fmt.Errorf("create entry: %w", err)
+		return 0, fmt.Errorf("create entry: %w", err)
 	}
 
 	const query = `
@@ -82,7 +88,7 @@ func (s *Storage) CreateEntry(ctx context.Context, entry Entry) error {
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
-	if _, err := s.db.ExecContext(
+	result, err := s.db.ExecContext(
 		ctx,
 		query,
 		entry.TaskID,
@@ -90,11 +96,16 @@ func (s *Storage) CreateEntry(ctx context.Context, entry Entry) error {
 		entry.RateID,
 		entry.StartedAt.Unix(),
 		unixTime(entry.EndedAt),
-		entry.Note,
-	); err != nil {
-		return fmt.Errorf("create entry: %w", err)
+		strings.TrimSpace(entry.Note),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("create entry: %w", err)
 	}
-	return nil
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("get created entry ID: %w", err)
+	}
+	return int(id), nil
 }
 
 func (s *Storage) UpdateEntry(ctx context.Context, entry Entry) error {
@@ -122,7 +133,7 @@ func (s *Storage) UpdateEntry(ctx context.Context, entry Entry) error {
 		entry.RateID,
 		entry.StartedAt.Unix(),
 		unixTime(entry.EndedAt),
-		entry.Note,
+		strings.TrimSpace(entry.Note),
 		entry.ID,
 	)
 	if err != nil {
@@ -163,6 +174,31 @@ func (s *Storage) PauseEntry(ctx context.Context, id int, endedAt time.Time) err
 		return fmt.Errorf("entry %d is not active or its end time is not after its start time", id)
 	}
 	return nil
+}
+
+func (s *Storage) PauseAllEntries(
+	ctx context.Context,
+	endedAt time.Time,
+) (int, error) {
+	if err := validateEndTime(endedAt); err != nil {
+		return 0, fmt.Errorf("pause entries: %w", err)
+	}
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE ENTRY
+		 SET ENDED_AT = $1
+		 WHERE ENDED_AT IS NULL
+		   AND STARTED_AT < $1`,
+		endedAt.Unix(),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("pause entries: %w", err)
+	}
+	paused, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("get paused entry count: %w", err)
+	}
+	return int(paused), nil
 }
 
 func (s *Storage) DeleteEntry(ctx context.Context, id int) error {

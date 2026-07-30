@@ -66,58 +66,14 @@ func projectItems(
 	entries []storage.Entry,
 	payments []storage.Payment,
 ) []projectItem {
-	ratesByID := make(map[int]storage.Rate, len(rates))
-	for _, rate := range rates {
-		ratesByID[rate.ID] = rate
-	}
-	balances := make(map[int]map[string]int64, len(projects))
-	minorSeconds := make(map[int]map[string]int64, len(projects))
-	tracked := make(map[int]time.Duration, len(projects))
-	for _, project := range projects {
-		balances[project.ID] = map[string]int64{
-			ratesByID[project.RateID].Currency: 0,
-		}
-		minorSeconds[project.ID] = make(map[string]int64)
-	}
-	for _, entry := range entries {
-		if entry.ProjectID == nil || entry.RateID == nil || entry.EndedAt == nil {
-			continue
-		}
-		rate, ok := ratesByID[*entry.RateID]
-		if !ok {
-			continue
-		}
-		if _, ok := balances[*entry.ProjectID]; !ok {
-			continue
-		}
-		elapsed := entry.EndedAt.Sub(entry.StartedAt)
-		if elapsed < 0 {
-			elapsed = 0
-		}
-		seconds := int64(elapsed / time.Second)
-		tracked[*entry.ProjectID] += elapsed
-		minorSeconds[*entry.ProjectID][rate.Currency] +=
-			int64(rate.AmountMinor) * seconds
-	}
-	for projectID, currencies := range minorSeconds {
-		for currency, total := range currencies {
-			balances[projectID][currency] += total / 3600
-		}
-	}
-	for _, payment := range payments {
-		if balances[payment.ProjectID] == nil {
-			continue
-		}
-		balances[payment.ProjectID][payment.Currency] -= int64(payment.AmountMinor)
-	}
-
-	items := make([]projectItem, len(projects))
-	for i, project := range projects {
+	summaries := storage.SummarizeProjects(projects, rates, entries, payments)
+	items := make([]projectItem, len(summaries))
+	for i, summary := range summaries {
 		items[i] = projectItem{
-			project: project,
-			rate:    ratesByID[project.RateID],
-			balance: balances[project.ID],
-			tracked: tracked[project.ID],
+			project: summary.Project,
+			rate:    summary.Rate,
+			balance: summary.BalanceMinor,
+			tracked: summary.Tracked,
 		}
 	}
 	return items

@@ -21,6 +21,10 @@ func main() {
 func run() error {
 	ctx := context.Background()
 
+	if len(os.Args) > 1 && !cli.RequiresStorage(os.Args[1:]) {
+		return cli.Run(ctx, os.Args[1:], version, nil)
+	}
+
 	stor, err := storage.Open()
 	if err != nil {
 		return err

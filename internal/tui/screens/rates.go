@@ -37,14 +37,11 @@ func (r rateItem) FilterValue() string {
 }
 
 func rateItems(rates []storage.Rate, projects []storage.Project) []rateItem {
-	projectCounts := make(map[int]int, len(rates))
-	for _, project := range projects {
-		projectCounts[project.RateID]++
-	}
-	items := make([]rateItem, len(rates))
-	for i, rate := range rates {
+	summaries := storage.SummarizeRates(rates, projects)
+	items := make([]rateItem, len(summaries))
+	for i, summary := range summaries {
 		items[i] = rateItem{
-			Rate: rate, projectCount: projectCounts[rate.ID],
+			Rate: summary.Rate, projectCount: summary.ProjectCount,
 		}
 	}
 	return items
