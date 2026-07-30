@@ -78,6 +78,47 @@ func TestCreateTaskAndStart(t *testing.T) {
 	})
 }
 
+func TestCreateTaskAndEntry(t *testing.T) {
+	stor := fixtureStorage(t)
+	ctx := t.Context()
+	project := fixtureProject(t, stor)
+	startedAt := time.Unix(1_700_000_000, 0)
+	endedAt := startedAt.Add(90 * time.Minute)
+
+	if err := stor.CreateTaskAndEntry(
+		ctx,
+		storage.Task{Name: "past task", ProjectID: project.ID},
+		storage.Entry{
+			StartedAt: startedAt,
+			EndedAt:   &endedAt,
+			Note:      "missed entry",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks, err := stor.GetTasks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := stor.GetEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || len(entries) != 1 {
+		t.Fatalf("got %d tasks and %d entries", len(tasks), len(entries))
+	}
+	entry := entries[0]
+	if entry.TaskID == nil || *entry.TaskID != tasks[0].ID ||
+		entry.ProjectID == nil || *entry.ProjectID != project.ID ||
+		entry.RateID == nil || *entry.RateID != project.RateID ||
+		!entry.StartedAt.Equal(startedAt) ||
+		entry.EndedAt == nil || !entry.EndedAt.Equal(endedAt) ||
+		entry.Note != "missed entry" {
+		t.Fatalf("unexpected entry: %#v", entry)
+	}
+}
+
 func TestGetTasks(t *testing.T) {
 	t.Run("ordered by ID", func(t *testing.T) {
 		stor := fixtureStorage(t)

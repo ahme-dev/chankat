@@ -24,12 +24,15 @@ type Dashboard struct {
 	stor        *storage.Storage
 	entries     []storage.Entry
 	projectList []storage.Project
+	taskList    []storage.Task
 	projects    map[int]string
 	tasks       map[int]string
 	rates       map[int]storage.Rate
 	active      list.Model
 	activeItems []storage.Entry
 	taskPage    components.Page[taskItem]
+	entryPage   *components.Page[entryItem]
+	detailTask  *storage.Task
 	focus       dashboardRow
 	spinner     spinner.Model
 	now         time.Time
@@ -110,17 +113,25 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 		m.refreshTables()
 		return m, tickDashboard()
 	}
+	if m.entryPage != nil && m.entryPage.FormActive() {
+		var cmd tea.Cmd
+		*m.entryPage, cmd = m.entryPage.Update(msg)
+		return m, cmd
+	}
 	if m.taskPage.FormActive() {
 		var cmd tea.Cmd
 		m.taskPage, cmd = m.taskPage.Update(msg)
 		return m, cmd
 	}
 
-	var taskCmd tea.Cmd
+	var taskCmd, entryCmd tea.Cmd
 	switch msg.(type) {
 	case tea.KeyMsg, tea.MouseMsg, tea.WindowSizeMsg:
 	default:
 		m.taskPage, taskCmd = m.taskPage.Update(msg)
+		if m.entryPage != nil {
+			*m.entryPage, entryCmd = m.entryPage.Update(msg)
+		}
 		m.resizeTaskPage()
 	}
 
@@ -130,14 +141,20 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 		m.viewport.Height = msg.Height
 		m.active.SetSize(msg.Width, m.active.Height())
 		m.resizeTaskPage()
+		m.resizeEntryPage()
 		return m, nil
 	case dashboardLoadedMsg:
 		m.now = time.Now()
 		m.entries = msg.entries
 		m.projectList = msg.projects
+		m.taskList = msg.tasks
 		m.projects = projectNames(msg.projects)
 		m.tasks = taskNames(msg.tasks)
 		m.rates = ratesByID(msg.rates)
+		detailChanged := m.refreshDetailTask()
+		if detailChanged && m.entryPage != nil {
+			entryCmd = m.entryPage.Reload()
+		}
 		m.loading = false
 		m.err = nil
 		m.refreshTables()
@@ -168,16 +185,33 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			return m, cmd
 		}
 	case tea.KeyMsg:
+		if m.detailTask != nil {
+			return m.updateDetail(msg, tea.Batch(taskCmd, entryCmd))
+		}
 		if !m.taskPage.GlobalKeysEnabled() {
 			m.taskPage, taskCmd = m.taskPage.Update(msg)
 			m.resizeTaskPage()
 			return m, taskCmd
 		}
 		switch msg.String() {
-		case "/", "n", "e", "enter", "x", "delete", "c":
+		case "/", "n":
 			m.setFocus(dashboardTaskRow)
 			m.taskPage, taskCmd = m.taskPage.Update(msg)
 			return m, taskCmd
+		case "a":
+			return m.openHistoricalTask()
+		case "enter":
+			return m.openSelectedTask()
+		case "e":
+			return m.openSelectedTaskForm(false)
+		case "x", "delete":
+			return m.openSelectedTaskForm(true)
+		case "c":
+			if m.focus == dashboardTaskRow {
+				m.taskPage, taskCmd = m.taskPage.Update(msg)
+				return m, taskCmd
+			}
+			return m, nil
 		case " ", "space":
 			switch m.focus {
 			case dashboardActiveRow:
@@ -211,6 +245,12 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			}
 		}
 	case tea.MouseMsg:
+		if m.detailTask != nil {
+			if m.entryPage != nil {
+				*m.entryPage, entryCmd = m.entryPage.Update(msg)
+			}
+			return m, entryCmd
+		}
 		mouse := tea.MouseEvent(msg)
 		if mouse.Button == tea.MouseButtonWheelUp ||
 			mouse.Button == tea.MouseButtonWheelDown {
@@ -224,22 +264,27 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			break
 		}
 		kind, index := m.rowAt(mouse.Y - 2 + m.viewport.YOffset)
-		if !dashboardActionAt(kind, mouse.X) {
-			break
-		}
 		switch kind {
 		case dashboardActiveRow:
 			m.setFocus(dashboardActiveRow)
 			m.active.Select(index)
-			return m, pauseEntry(m.ctx, m.stor, m.activeItems[index].ID, m.now)
+			if dashboardActionAt(kind, mouse.X) {
+				return m, pauseEntry(m.ctx, m.stor, m.activeItems[index].ID, m.now)
+			}
+			return m.openSelectedTask()
 		case dashboardTaskRow:
 			m.setFocus(dashboardTaskRow)
 			m.taskPage.Select(index)
-			if item, ok := m.taskPage.Selected(); ok {
+			if dashboardActionAt(kind, mouse.X) {
+				item, ok := m.taskPage.Selected()
+				if !ok {
+					return m, nil
+				}
 				return m, startTaskEntry(
 					m.ctx, m.stor, item.task, m.projectList, m.now,
 				)
 			}
+			return m.openSelectedTask()
 		}
 	}
 
@@ -251,12 +296,15 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			m.active, cmd = m.active.Update(msg)
 		}
 		m.ensureFocusVisible()
-		return m, tea.Batch(cmd, taskCmd)
+		return m, tea.Batch(cmd, taskCmd, entryCmd)
 	}
-	return m, taskCmd
+	return m, tea.Batch(taskCmd, entryCmd)
 }
 
 func (m Dashboard) View() string {
+	if m.entryPage != nil && m.entryPage.FormActive() {
+		return m.entryPage.View()
+	}
 	if m.taskPage.FormActive() {
 		return m.taskPage.View()
 	}
@@ -265,6 +313,9 @@ func (m Dashboard) View() string {
 	}
 	if m.err != nil {
 		return dashboardErrorStyle.Render("Error: " + m.err.Error())
+	}
+	if m.detailTask != nil {
+		return m.detailView()
 	}
 
 	content := m.content()
@@ -613,24 +664,37 @@ func ratesByID(rates []storage.Rate) map[int]storage.Rate {
 }
 
 func (m Dashboard) FormActive() bool {
-	return m.taskPage.FormActive()
+	return m.taskPage.FormActive() ||
+		m.entryPage != nil && m.entryPage.FormActive()
 }
 
 func (m Dashboard) GlobalKeysEnabled() bool {
+	if m.entryPage != nil && m.entryPage.FormActive() {
+		return false
+	}
+	if m.detailTask != nil && m.entryPage != nil {
+		return m.entryPage.GlobalKeysEnabled()
+	}
 	return m.taskPage.GlobalKeysEnabled()
 }
 
 func (m *Dashboard) Reload() tea.Cmd {
 	m.loading = true
-	return tea.Batch(loadDashboard(m.ctx, m.stor), m.taskPage.Reload())
+	var entryCmd tea.Cmd
+	if m.entryPage != nil {
+		entryCmd = m.entryPage.Reload()
+	}
+	return tea.Batch(loadDashboard(m.ctx, m.stor), m.taskPage.Reload(), entryCmd)
 }
 
 func (m Dashboard) Actions() string {
-	actions := m.taskPage.Actions()
-	if len(m.activeItems) > 0 {
-		actions += "  [space] pause"
+	if m.detailTask != nil {
+		return "[/] search  [n] add time  [e/enter] edit time  " +
+			"[x/delete] delete time  [t] edit task  [esc] back"
 	}
-	return actions
+	return "[/] search  [n] new & track  [a] add past task  " +
+		"[enter] details  [e] edit task  [x/delete] delete  " +
+		"[space] start/pause"
 }
 
 func (m *Dashboard) resizeTaskPage() {
@@ -643,6 +707,181 @@ func (m *Dashboard) resizeTaskPage() {
 		height = 4
 	}
 	m.taskPage.SetSize(m.viewport.Width, height)
+}
+
+func (m *Dashboard) resizeEntryPage() {
+	if m.entryPage == nil {
+		return
+	}
+	height := m.viewport.Height - 3
+	if height < 4 {
+		height = 4
+	}
+	m.entryPage.SetSize(m.viewport.Width, height)
+}
+
+func (m Dashboard) updateDetail(
+	msg tea.KeyMsg,
+	pending tea.Cmd,
+) (Dashboard, tea.Cmd) {
+	if m.entryPage == nil {
+		m.detailTask = nil
+		return m, pending
+	}
+	if !m.entryPage.GlobalKeysEnabled() {
+		var cmd tea.Cmd
+		*m.entryPage, cmd = m.entryPage.Update(msg)
+		return m, tea.Batch(pending, cmd)
+	}
+	switch msg.String() {
+	case "esc":
+		m.detailTask = nil
+		m.entryPage = nil
+		return m, pending
+	case "t":
+		item, ok := m.taskItem(*m.detailTask)
+		if !ok {
+			return m, nil
+		}
+		form, err := taskForm(m.ctx, m.stor, &item.task, m.projectList)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.taskPage, pending = m.taskPage.OpenForm(form)
+		return m, pending
+	default:
+		var cmd tea.Cmd
+		*m.entryPage, cmd = m.entryPage.Update(msg)
+		return m, tea.Batch(pending, cmd)
+	}
+}
+
+func (m Dashboard) openSelectedTask() (Dashboard, tea.Cmd) {
+	task, ok := m.selectedTask()
+	if !ok {
+		return m, nil
+	}
+	page := newEntryPage(m.ctx, m.stor, task.ID, func() tea.Cmd {
+		return tea.Batch(
+			loadDashboard(m.ctx, m.stor),
+			m.taskPage.Reload(),
+		)
+	})
+	m.detailTask = &task
+	m.entryPage = &page
+	m.viewport.SetYOffset(0)
+	m.resizeEntryPage()
+	return m, m.entryPage.Init()
+}
+
+func (m Dashboard) openSelectedTaskForm(deleteTask bool) (Dashboard, tea.Cmd) {
+	task, ok := m.selectedTask()
+	if !ok {
+		return m, nil
+	}
+	var form *components.Form[taskItem]
+	if deleteTask {
+		form = components.NewDeleteForm[taskItem](
+			m.ctx,
+			task.Name,
+			func(ctx context.Context) error {
+				return m.stor.DeleteTask(ctx, task.ID)
+			},
+		)
+	} else {
+		var err error
+		form, err = taskForm(m.ctx, m.stor, &task, m.projectList)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+	}
+	var cmd tea.Cmd
+	m.taskPage, cmd = m.taskPage.OpenForm(form)
+	return m, cmd
+}
+
+func (m Dashboard) openHistoricalTask() (Dashboard, tea.Cmd) {
+	form, err := historicalTaskForm(m.ctx, m.stor, m.projectList, m.now)
+	if err != nil {
+		m.err = err
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.taskPage, cmd = m.taskPage.OpenForm(form)
+	return m, cmd
+}
+
+func (m Dashboard) selectedTask() (storage.Task, bool) {
+	if m.focus == dashboardTaskRow {
+		if item, ok := m.taskPage.Selected(); ok {
+			return item.task, true
+		}
+		return storage.Task{}, false
+	}
+	index := m.active.Index()
+	if index < 0 || index >= len(m.activeItems) {
+		return storage.Task{}, false
+	}
+	entry := m.activeItems[index]
+	if entry.TaskID == nil {
+		return storage.Task{}, false
+	}
+	for _, task := range m.taskList {
+		if task.ID == *entry.TaskID {
+			return task, true
+		}
+	}
+	return storage.Task{}, false
+}
+
+func (m Dashboard) taskItem(task storage.Task) (taskItem, bool) {
+	for _, project := range m.projectList {
+		if project.ID == task.ProjectID {
+			return taskItem{task: task, project: project}, true
+		}
+	}
+	return taskItem{}, false
+}
+
+func (m *Dashboard) refreshDetailTask() bool {
+	if m.detailTask == nil {
+		return false
+	}
+	previous := *m.detailTask
+	id := m.detailTask.ID
+	for _, task := range m.taskList {
+		if task.ID == id {
+			copy := task
+			m.detailTask = &copy
+			return task != previous
+		}
+	}
+	m.detailTask = nil
+	m.entryPage = nil
+	return true
+}
+
+func (m Dashboard) detailView() string {
+	task := *m.detailTask
+	project := m.projects[task.ProjectID]
+	duration, amounts := taskTotals(m.entries, m.rates, task.ID, m.now)
+	summary := project + " · total " + components.FormatDuration(duration)
+	if amount := formatTaskAmounts(amounts); amount != "" {
+		summary += " · " + amount + " earned"
+	}
+	body := "No entries."
+	if m.entryPage != nil {
+		body = m.entryPage.View()
+	}
+	return fmt.Sprintf(
+		"%s\n%s\n\n%s\n%s",
+		dashboardSectionStyle.Render(task.Name),
+		dashboardMutedStyle.Render(summary),
+		dashboardSectionStyle.Render("Time entries"),
+		body,
+	)
 }
 
 type taskItem struct {
@@ -725,39 +964,42 @@ func taskItems(
 	}
 	active := make(map[int]bool)
 	latest := make(map[int]storage.Entry)
-	for i := len(entries) - 1; i >= 0; i-- {
-		entry := entries[i]
+	for _, entry := range entries {
 		if entry.TaskID == nil {
 			continue
 		}
 		if entry.EndedAt == nil {
 			active[*entry.TaskID] = true
-		} else if _, ok := latest[*entry.TaskID]; !ok {
+			continue
+		}
+		previous, ok := latest[*entry.TaskID]
+		if !ok ||
+			entry.EndedAt.After(*previous.EndedAt) ||
+			entry.EndedAt.Equal(*previous.EndedAt) && entry.ID > previous.ID {
 			latest[*entry.TaskID] = entry
 		}
 	}
 
-	byID := make(map[int]storage.Task, len(tasks))
-	for _, task := range tasks {
-		byID[task.ID] = task
-	}
 	ordered := make([]storage.Task, 0, len(tasks))
-	seen := make(map[int]bool)
-	for i := len(entries) - 1; i >= 0; i-- {
-		entry := entries[i]
-		if entry.TaskID == nil || active[*entry.TaskID] || seen[*entry.TaskID] {
-			continue
-		}
-		if task, ok := byID[*entry.TaskID]; ok {
-			ordered = append(ordered, task)
-			seen[task.ID] = true
-		}
-	}
 	for _, task := range tasks {
-		if !active[task.ID] && !seen[task.ID] {
+		if !active[task.ID] {
 			ordered = append(ordered, task)
 		}
 	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left, leftOK := latest[ordered[i].ID]
+		right, rightOK := latest[ordered[j].ID]
+		if leftOK != rightOK {
+			return leftOK
+		}
+		if !leftOK {
+			return false
+		}
+		if !left.EndedAt.Equal(*right.EndedAt) {
+			return left.EndedAt.After(*right.EndedAt)
+		}
+		return left.ID > right.ID
+	})
 
 	items := make([]taskItem, 0, len(ordered))
 	for _, task := range ordered {
@@ -864,6 +1106,69 @@ func taskForm(
 	), nil
 }
 
+func historicalTaskForm(
+	ctx context.Context,
+	stor *storage.Storage,
+	projects []storage.Project,
+	now time.Time,
+) (*components.Form[taskItem], error) {
+	if len(projects) == 0 {
+		return nil, errors.New("no projects available; create a project first")
+	}
+	now = now.Truncate(time.Minute)
+	name := ""
+	projectID := projects[0].ID
+	startedAt := components.FormatDateTime(now.Add(-time.Hour))
+	endedAt := components.FormatDateTime(now)
+	note := ""
+	options := make([]huh.Option[int], len(projects))
+	for i, project := range projects {
+		options[i] = huh.NewOption(project.Name, project.ID)
+	}
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewInput().
+			Title("Name").
+			Value(&name).
+			Validate(components.Required("name")),
+		huh.NewSelect[int]().
+			Title("Project").
+			Options(options...).
+			Value(&projectID),
+		huh.NewInput().
+			Title("Started at (YYYY-MM-DD HH:MM)").
+			Value(&startedAt).
+			Validate(components.DateTime),
+		huh.NewInput().
+			Title("Ended at (YYYY-MM-DD HH:MM)").
+			Value(&endedAt).
+			Validate(entryEndTime(&startedAt, false)),
+		huh.NewInput().
+			Title("Note").
+			Value(&note),
+	)).WithShowHelp(true)
+
+	return components.NewForm[taskItem](
+		ctx,
+		"tasks / add past task",
+		form,
+		func(ctx context.Context) error {
+			started, _ := components.ParseDateTime(startedAt)
+			ended, _ := components.ParseDateTime(endedAt)
+			return stor.CreateTaskAndEntry(
+				ctx,
+				storage.Task{
+					Name: strings.TrimSpace(name), ProjectID: projectID,
+				},
+				storage.Entry{
+					StartedAt: started,
+					EndedAt:   &ended,
+					Note:      strings.TrimSpace(note),
+				},
+			)
+		},
+	), nil
+}
+
 func taskFields(
 	task *storage.Task,
 	projects []storage.Project,
@@ -891,4 +1196,198 @@ func taskFields(
 			Value(&values.projectID),
 	)).WithShowHelp(true)
 	return form, values, nil
+}
+
+type entryItem struct {
+	entry storage.Entry
+	now   time.Time
+}
+
+type entryMeta struct {
+	task    storage.Task
+	project storage.Project
+}
+
+func (e entryItem) Title() string {
+	endedAt := "active"
+	if e.entry.EndedAt != nil {
+		endedAt = components.FormatDateTime(*e.entry.EndedAt)
+	}
+	return components.FormatDateTime(e.entry.StartedAt) + " → " + endedAt
+}
+
+func (e entryItem) Description() string {
+	endedAt := e.now
+	if e.entry.EndedAt != nil {
+		endedAt = *e.entry.EndedAt
+	}
+	description := components.FormatDuration(endedAt.Sub(e.entry.StartedAt))
+	if e.entry.Note != "" {
+		description += " · " + e.entry.Note
+	}
+	return description
+}
+
+func (e entryItem) FilterValue() string {
+	return e.Title() + " " + e.entry.Note
+}
+
+func newEntryPage(
+	ctx context.Context,
+	stor *storage.Storage,
+	taskID int,
+	afterSave func() tea.Cmd,
+) components.Page[entryItem] {
+	config := components.Config[entryItem]{
+		Name:     "time entries",
+		Embedded: true,
+		Load: func(ctx context.Context) ([]entryItem, any, error) {
+			task, err := stor.GetTask(ctx, taskID)
+			if err != nil {
+				return nil, nil, err
+			}
+			entries, err := stor.GetEntries(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			project, err := stor.GetProject(ctx, task.ProjectID)
+			if err != nil {
+				return nil, nil, err
+			}
+			now := time.Now()
+			return entryItems(entries, task.ID, now), entryMeta{
+				task: task, project: project,
+			}, nil
+		},
+		Create: func(meta any) (*components.Form[entryItem], error) {
+			values := meta.(entryMeta)
+			return entryForm(
+				ctx, stor, values.task, values.project, nil, time.Now(),
+			), nil
+		},
+		Update: func(
+			item entryItem,
+			meta any,
+		) (*components.Form[entryItem], error) {
+			values := meta.(entryMeta)
+			return entryForm(
+				ctx, stor, values.task, values.project, &item.entry, time.Now(),
+			), nil
+		},
+		Delete: func(item entryItem) *components.Form[entryItem] {
+			return components.NewDeleteForm[entryItem](
+				ctx,
+				"time entry "+components.FormatDateTime(item.entry.StartedAt),
+				func(ctx context.Context) error {
+					return stor.DeleteEntry(ctx, item.entry.ID)
+				},
+			)
+		},
+		AfterSave: afterSave,
+	}
+	return components.NewPage(ctx, config)
+}
+
+func entryItems(
+	entries []storage.Entry,
+	taskID int,
+	now time.Time,
+) []entryItem {
+	items := make([]entryItem, 0)
+	for _, entry := range entries {
+		if entry.TaskID != nil && *entry.TaskID == taskID {
+			items = append(items, entryItem{entry: entry, now: now})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].entry.StartedAt.After(items[j].entry.StartedAt)
+	})
+	return items
+}
+
+func entryForm(
+	ctx context.Context,
+	stor *storage.Storage,
+	task storage.Task,
+	project storage.Project,
+	entry *storage.Entry,
+	now time.Time,
+) *components.Form[entryItem] {
+	now = now.Truncate(time.Minute)
+	startedAt := components.FormatDateTime(now.Add(-time.Hour))
+	endedAt := components.FormatDateTime(now)
+	note := ""
+	action := "add"
+	if entry != nil {
+		startedAt = components.FormatDateTime(entry.StartedAt)
+		endedAt = ""
+		if entry.EndedAt != nil {
+			endedAt = components.FormatDateTime(*entry.EndedAt)
+		}
+		note = entry.Note
+		action = "edit"
+	}
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewInput().
+			Title("Started at (YYYY-MM-DD HH:MM)").
+			Value(&startedAt).
+			Validate(components.DateTime),
+		huh.NewInput().
+			Title("Ended at (blank means active)").
+			Value(&endedAt).
+			Validate(entryEndTime(&startedAt, entry != nil)),
+		huh.NewInput().
+			Title("Note").
+			Value(&note),
+	)).WithShowHelp(true)
+
+	return components.NewForm[entryItem](
+		ctx,
+		"tasks / "+task.Name+" / "+action+" time",
+		form,
+		func(ctx context.Context) error {
+			started, _ := components.ParseDateTime(startedAt)
+			var ended *time.Time
+			if strings.TrimSpace(endedAt) != "" {
+				value, _ := components.ParseDateTime(endedAt)
+				ended = &value
+			}
+			value := storage.Entry{
+				StartedAt: started,
+				EndedAt:   ended,
+				Note:      strings.TrimSpace(note),
+			}
+			if entry != nil {
+				value.ID = entry.ID
+				value.TaskID = entry.TaskID
+				value.ProjectID = entry.ProjectID
+				value.RateID = entry.RateID
+				return stor.UpdateEntry(ctx, value)
+			}
+			value.TaskID = &task.ID
+			value.ProjectID = &project.ID
+			value.RateID = &project.RateID
+			return stor.CreateEntry(ctx, value)
+		},
+	)
+}
+
+func entryEndTime(startedAt *string, optional bool) func(string) error {
+	return func(value string) error {
+		if optional && strings.TrimSpace(value) == "" {
+			return nil
+		}
+		if err := components.DateTime(value); err != nil {
+			return err
+		}
+		started, err := components.ParseDateTime(*startedAt)
+		if err != nil {
+			return errors.New("enter a valid start time first")
+		}
+		ended, _ := components.ParseDateTime(value)
+		if !ended.After(started) {
+			return errors.New("end time must be after start time")
+		}
+		return nil
+	}
 }

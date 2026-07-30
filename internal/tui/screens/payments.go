@@ -145,11 +145,11 @@ func paymentForm(
 		huh.NewInput().
 			Title("Paid at (YYYY-MM-DD)").
 			Value(&paidAt).
-			Validate(paymentDate),
+			Validate(components.Date),
 		huh.NewInput().
 			Title("Paid for (YYYY-MM-DD)").
 			Value(&paidForDate).
-			Validate(paymentDate),
+			Validate(components.Date),
 		huh.NewInput().
 			Title("Note").
 			Value(&values.Note),
@@ -163,12 +163,8 @@ func paymentForm(
 			values.AmountMinor, _ = strconv.Atoi(amountMinor)
 			values.Currency = strings.ToUpper(strings.TrimSpace(values.Currency))
 			values.Note = strings.TrimSpace(values.Note)
-			values.PaidAt, _ = time.ParseInLocation(
-				components.DateLayout, paidAt, time.Local,
-			)
-			values.PaidForDate, _ = time.ParseInLocation(
-				components.DateLayout, paidForDate, time.Local,
-			)
+			values.PaidAt, _ = components.ParseDate(paidAt)
+			values.PaidForDate, _ = components.ParseDate(paidForDate)
 			if payment == nil {
 				return stor.CreatePayment(ctx, values)
 			}
@@ -189,11 +185,4 @@ func deletePaymentForm(
 			return stor.DeletePayment(ctx, payment.ID)
 		},
 	)
-}
-
-func paymentDate(value string) error {
-	if _, err := time.Parse(components.DateLayout, value); err != nil {
-		return errors.New("date must use YYYY-MM-DD")
-	}
-	return nil
 }

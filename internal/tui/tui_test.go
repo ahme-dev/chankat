@@ -30,7 +30,8 @@ func TestDashboardFillsContentHeight(t *testing.T) {
 		t.Fatalf("got %d lines, want %d", got, m.height)
 	}
 	if got := lines[len(lines)-1]; got !=
-		"[/] search  [n] new  [e/enter] edit  [x/delete] delete  [c] copy" {
+		"[/] search  [n] new & track  [a] add past task  [enter] details  "+
+			"[e] edit task  [x/delete] delete  [space] start/pause" {
 		t.Fatalf("got final line %q", got)
 	}
 }

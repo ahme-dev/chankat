@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"chankat/internal/storage"
+	"chankat/internal/tui/components"
 )
 
 func TestPaymentItem(t *testing.T) {
@@ -31,10 +32,10 @@ func TestPaymentItem(t *testing.T) {
 }
 
 func TestPaymentDate(t *testing.T) {
-	if err := paymentDate("2026-07-20"); err != nil {
+	if err := components.Date("2026-07-20"); err != nil {
 		t.Fatalf("valid date rejected: %v", err)
 	}
-	if err := paymentDate("20/07/2026"); err == nil {
+	if err := components.Date("20/07/2026"); err == nil {
 		t.Fatal("invalid date accepted")
 	}
 }

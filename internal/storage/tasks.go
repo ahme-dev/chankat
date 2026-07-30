@@ -61,9 +61,17 @@ func (s *Storage) CreateTaskAndStart(
 	task Task,
 	startedAt time.Time,
 ) error {
+	return s.CreateTaskAndEntry(ctx, task, Entry{StartedAt: startedAt})
+}
+
+func (s *Storage) CreateTaskAndEntry(
+	ctx context.Context,
+	task Task,
+	entry Entry,
+) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin task start: %w", err)
+		return fmt.Errorf("begin task entry: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -96,14 +104,18 @@ func (s *Storage) CreateTaskAndStart(
 
 	if _, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO ENTRY (TASK_ID, PROJECT_ID, RATE_ID, STARTED_AT)
-		 VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO ENTRY (
+			TASK_ID, PROJECT_ID, RATE_ID, STARTED_AT, ENDED_AT, NOTES
+		 )
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
 		taskID,
 		task.ProjectID,
 		rateID,
-		startedAt.Unix(),
+		entry.StartedAt.Unix(),
+		unixTime(entry.EndedAt),
+		entry.Note,
 	); err != nil {
-		return fmt.Errorf("start task entry: %w", err)
+		return fmt.Errorf("create task entry: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

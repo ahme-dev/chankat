@@ -271,6 +271,11 @@ func (m *Page[T]) Reload() tea.Cmd {
 	return m.load()
 }
 
+func (m Page[T]) OpenForm(form *Form[T]) (Page[T], tea.Cmd) {
+	m.form = form
+	return m, form.Init()
+}
+
 func (m Page[T]) load() tea.Cmd {
 	return func() tea.Msg {
 		items, meta, err := m.config.Load(m.ctx)

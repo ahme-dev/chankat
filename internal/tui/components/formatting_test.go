@@ -56,3 +56,23 @@ func TestFormatDate(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestDateTime(t *testing.T) {
+	value := time.Date(2026, 7, 20, 12, 30, 0, 0, time.Local)
+	if got := FormatDateTime(value); got != "2026-07-20 12:30" {
+		t.Fatalf("got %q", got)
+	}
+	parsed, err := ParseDateTime(" 2026-07-20 12:30 ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parsed.Equal(value) {
+		t.Fatalf("got %v, want %v", parsed, value)
+	}
+	if err := DateTime("20/07/2026 12:30"); err == nil {
+		t.Fatal("invalid datetime accepted")
+	}
+	if err := OptionalDateTime(""); err != nil {
+		t.Fatalf("blank optional datetime rejected: %v", err)
+	}
+}
