@@ -8,8 +8,8 @@ const (
 	completeRateID
 	completeProjectID
 	completeTaskID
+	completeActiveTaskID
 	completeEntryID
-	completeActiveEntryID
 	completePaymentID
 )
 
@@ -88,7 +88,7 @@ var commandSpecs = map[string]resourceSpec{
 		},
 	},
 	"tasks": {
-		actions: []string{"list", "get", "create", "update", "delete", "start"},
+		actions: []string{"list", "get", "create", "update", "delete", "start", "stop"},
 		commands: map[string]commandSpec{
 			"list": {
 				usage: "chankat tasks list [--active]",
@@ -126,10 +126,17 @@ var commandSpecs = map[string]resourceSpec{
 				positional: completeTaskID,
 				options:    options("at"),
 			},
+			"stop": {
+				usage:      "chankat tasks stop ID | chankat tasks stop --all",
+				positional: completeActiveTaskID,
+				options: []optionSpec{
+					{name: "all", boolean: true},
+				},
+			},
 		},
 	},
 	"entries": {
-		actions: []string{"list", "get", "create", "update", "delete", "stop"},
+		actions: []string{"list", "get", "create", "update", "delete"},
 		commands: map[string]commandSpec{
 			"list": {
 				usage: "chankat entries list [--task ID] [--active]",
@@ -157,13 +164,6 @@ var commandSpecs = map[string]resourceSpec{
 			},
 			"delete": {
 				usage: "chankat entries delete ID", positional: completeEntryID,
-			},
-			"stop": {
-				usage:      "chankat entries stop ID | chankat entries stop --all",
-				positional: completeActiveEntryID,
-				options: []optionSpec{
-					{name: "all", boolean: true},
-				},
 			},
 		},
 	},

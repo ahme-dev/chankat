@@ -41,7 +41,7 @@ func TestStaticCompletion(t *testing.T) {
 			want: []string{"--name", "--project", "--start", "--help"},
 		},
 		{
-			args: []string{"entries", "stop", "--"},
+			args: []string{"tasks", "stop", "--"},
 			want: []string{"--all", "--help"},
 		},
 	} {
@@ -83,7 +83,7 @@ func TestDynamicCompletion(t *testing.T) {
 			want: []string{"1", "2", "--name", "--project"},
 		},
 		{
-			args: []string{"entries", "stop", ""},
+			args: []string{"tasks", "stop", ""},
 			want: []string{"1", "--all"},
 			not:  []string{"2"},
 		},

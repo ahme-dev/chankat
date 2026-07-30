@@ -22,8 +22,6 @@ func (r runner) runEntries(args []string) error {
 		return r.updateEntry(args[1:])
 	case "delete":
 		return r.deleteEntry(args[1:])
-	case "stop":
-		return r.stopEntry(args[1:])
 	case "help", "-h", "--help":
 		r.help([]string{"entries"})
 		return nil
@@ -198,36 +196,6 @@ func (r runner) deleteEntry(args []string) error {
 		return err
 	}
 	return r.status("deleted", "entry", id)
-}
-
-func (r runner) stopEntry(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("usage: chankat entries stop ID | chankat entries stop --all")
-	}
-	endedAt := r.now()
-	if args[0] == "--all" {
-		count, err := r.stor.PauseAllEntries(r.ctx, endedAt)
-		if err != nil {
-			return err
-		}
-		if r.json {
-			return r.writeJSON(struct {
-				Status string `json:"status"`
-				Entity string `json:"entity"`
-				Count  int    `json:"count"`
-			}{Status: "stopped", Entity: "entries", Count: count})
-		}
-		_, err = fmt.Fprintf(r.out, "%d entries stopped\n", count)
-		return err
-	}
-	id, err := parseID(args[0], "entry")
-	if err != nil {
-		return err
-	}
-	if err := r.stor.PauseEntry(r.ctx, id, endedAt); err != nil {
-		return err
-	}
-	return r.status("stopped", "entry", id)
 }
 
 func pointerInt(value *int) string {

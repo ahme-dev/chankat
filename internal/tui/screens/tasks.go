@@ -54,9 +54,9 @@ type dashboardFailedMsg struct {
 
 type dashboardTickMsg time.Time
 
-type entryPausedMsg struct{}
+type taskPausedMsg struct{}
 
-type entryPauseFailedMsg struct {
+type taskPauseFailedMsg struct {
 	err error
 }
 
@@ -161,7 +161,7 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 	case dashboardFailedMsg:
 		m.loading = false
 		m.err = msg.err
-	case entryPausedMsg:
+	case taskPausedMsg:
 		m.loading = true
 		return m, tea.Batch(
 			loadDashboard(m.ctx, m.stor),
@@ -174,7 +174,7 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			loadDashboard(m.ctx, m.stor),
 			m.taskPage.Reload(),
 		)
-	case entryPauseFailedMsg:
+	case taskPauseFailedMsg:
 		m.err = msg.err
 	case entryStartFailedMsg:
 		m.err = msg.err
@@ -217,7 +217,9 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			case dashboardActiveRow:
 				cursor := m.active.Index()
 				if cursor >= 0 && cursor < len(m.activeItems) {
-					return m, pauseEntry(m.ctx, m.stor, m.activeItems[cursor].ID, m.now)
+					return m, pauseTask(
+						m.ctx, m.stor, m.activeItems[cursor], m.now,
+					)
 				}
 			case dashboardTaskRow:
 				if item, ok := m.taskPage.Selected(); ok {
@@ -269,7 +271,9 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			m.setFocus(dashboardActiveRow)
 			m.active.Select(index)
 			if dashboardActionAt(kind, mouse.X) {
-				return m, pauseEntry(m.ctx, m.stor, m.activeItems[index].ID, m.now)
+				return m, pauseTask(
+					m.ctx, m.stor, m.activeItems[index], m.now,
+				)
 			}
 			return m.openSelectedTask()
 		case dashboardTaskRow:
@@ -534,17 +538,22 @@ func dashboardActionAt(row dashboardRow, x int) bool {
 	}
 }
 
-func pauseEntry(
+func pauseTask(
 	ctx context.Context,
 	stor *storage.Storage,
-	entryID int,
+	entry storage.Entry,
 	endedAt time.Time,
 ) tea.Cmd {
 	return func() tea.Msg {
-		if err := stor.PauseEntry(ctx, entryID, endedAt); err != nil {
-			return entryPauseFailedMsg{err: err}
+		if entry.TaskID == nil {
+			return taskPauseFailedMsg{
+				err: fmt.Errorf("active entry %d has no task", entry.ID),
+			}
 		}
-		return entryPausedMsg{}
+		if err := stor.PauseTask(ctx, *entry.TaskID, endedAt); err != nil {
+			return taskPauseFailedMsg{err: err}
+		}
+		return taskPausedMsg{}
 	}
 }
 

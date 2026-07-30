@@ -222,6 +222,75 @@ func (s *Storage) StartTask(ctx context.Context, taskID int, startedAt time.Time
 	return s.CreateEntryForTask(ctx, taskID, startedAt, nil, "")
 }
 
+func (s *Storage) PauseTask(
+	ctx context.Context,
+	taskID int,
+	endedAt time.Time,
+) error {
+	if err := validateEndTime(endedAt); err != nil {
+		return fmt.Errorf("pause task: %w", err)
+	}
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE ENTRY
+		 SET ENDED_AT = $1
+		 WHERE TASK_ID = $2
+		   AND ENDED_AT IS NULL
+		   AND STARTED_AT < $1`,
+		endedAt.Unix(),
+		taskID,
+	)
+	if err != nil {
+		return fmt.Errorf("pause task: %w", err)
+	}
+	paused, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get paused entry count: %w", err)
+	}
+	if paused == 0 {
+		return fmt.Errorf("task %d is not active", taskID)
+	}
+	return nil
+}
+
+func (s *Storage) PauseAllTasks(
+	ctx context.Context,
+	endedAt time.Time,
+) (int, error) {
+	if err := validateEndTime(endedAt); err != nil {
+		return 0, fmt.Errorf("pause tasks: %w", err)
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin pause tasks: %w", err)
+	}
+	defer tx.Rollback()
+
+	var taskIDs []int
+	if err := tx.SelectContext(ctx, &taskIDs, `
+		SELECT DISTINCT TASK_ID
+		FROM ENTRY
+		WHERE TASK_ID IS NOT NULL
+		  AND ENDED_AT IS NULL
+		  AND STARTED_AT < $1
+	`, endedAt.Unix()); err != nil {
+		return 0, fmt.Errorf("get active tasks: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE ENTRY
+		SET ENDED_AT = $1
+		WHERE TASK_ID IS NOT NULL
+		  AND ENDED_AT IS NULL
+		  AND STARTED_AT < $1
+	`, endedAt.Unix()); err != nil {
+		return 0, fmt.Errorf("pause tasks: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit pause tasks: %w", err)
+	}
+	return len(taskIDs), nil
+}
+
 func (s *Storage) UpdateTask(ctx context.Context, task Task) error {
 	name, err := NormalizeName(task.Name, "name")
 	if err != nil {

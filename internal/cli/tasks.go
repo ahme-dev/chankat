@@ -25,6 +25,8 @@ func (r runner) runTasks(args []string) error {
 		return r.deleteTask(args[1:])
 	case "start":
 		return r.startTask(args[1:])
+	case "stop":
+		return r.stopTask(args[1:])
 	case "help", "-h", "--help":
 		r.help([]string{"tasks"})
 		return nil
@@ -253,6 +255,36 @@ func (r runner) startTask(args []string) error {
 		return err
 	}
 	return r.status("started", "task", id)
+}
+
+func (r runner) stopTask(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: chankat tasks stop ID | chankat tasks stop --all")
+	}
+	endedAt := r.now()
+	if args[0] == "--all" {
+		count, err := r.stor.PauseAllTasks(r.ctx, endedAt)
+		if err != nil {
+			return err
+		}
+		if r.json {
+			return r.writeJSON(struct {
+				Status string `json:"status"`
+				Entity string `json:"entity"`
+				Count  int    `json:"count"`
+			}{Status: "stopped", Entity: "tasks", Count: count})
+		}
+		_, err = fmt.Fprintf(r.out, "%d tasks stopped\n", count)
+		return err
+	}
+	id, err := parseID(args[0], "task")
+	if err != nil {
+		return err
+	}
+	if err := r.stor.PauseTask(r.ctx, id, endedAt); err != nil {
+		return err
+	}
+	return r.status("stopped", "task", id)
 }
 
 func formatMinorMap(amounts map[string]int64) string {

@@ -5,8 +5,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	"chankat/internal/storage"
 )
 
 const bashCompletion = `_chankat_completion()
@@ -206,14 +204,20 @@ func (r runner) completeIDs(value completionValue) ([]string, error) {
 		for _, item := range items {
 			ids = append(ids, item.ID)
 		}
-	case completeEntryID, completeActiveEntryID:
-		var items []storage.Entry
-		var err error
-		if value == completeActiveEntryID {
-			items, err = r.stor.GetActiveEntries(r.ctx)
-		} else {
-			items, err = r.stor.GetEntries(r.ctx)
+	case completeActiveTaskID:
+		items, err := r.stor.GetActiveEntries(r.ctx)
+		if err != nil {
+			return nil, err
 		}
+		seen := make(map[int]bool)
+		for _, item := range items {
+			if item.TaskID != nil && !seen[*item.TaskID] {
+				ids = append(ids, *item.TaskID)
+				seen[*item.TaskID] = true
+			}
+		}
+	case completeEntryID:
+		items, err := r.stor.GetEntries(r.ctx)
 		if err != nil {
 			return nil, err
 		}

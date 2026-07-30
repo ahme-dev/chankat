@@ -53,7 +53,7 @@ func TestCLIResourceWorkflow(t *testing.T) {
 		t,
 		stor,
 		time.Date(2026, 7, 30, 10, 30, 0, 0, time.UTC),
-		"entries", "stop", "1",
+		"tasks", "stop", "1",
 	)
 	runCLI(t, stor, "entries", "update", "1", "--note", "first pass")
 	runCLI(t, stor, "entries", "create", "--task", "1",
@@ -135,7 +135,7 @@ func TestCLICreatesHistoricalTaskAndActiveEntry(t *testing.T) {
 	}
 }
 
-func TestCLIStopsAllEntries(t *testing.T) {
+func TestCLIStopsAllTasks(t *testing.T) {
 	stor := cliStorage(t)
 	runCLI(t, stor, "rates", "create", "--name", "Rate",
 		"--amount-minor", "8000", "--currency", "EUR")
@@ -144,6 +144,7 @@ func TestCLIStopsAllEntries(t *testing.T) {
 		runCLI(t, stor, "tasks", "create", "--name", name, "--project", "1",
 			"--started-at", "2026-07-30T09:00:00Z")
 	}
+	runCLI(t, stor, "tasks", "start", "1", "--at", "2026-07-30T09:30:00Z")
 
 	var result struct {
 		Status string `json:"status"`
@@ -153,7 +154,7 @@ func TestCLIStopsAllEntries(t *testing.T) {
 		t,
 		stor,
 		time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC),
-		"--json", "entries", "stop", "--all",
+		"--json", "tasks", "stop", "--all",
 	)
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("decode stop-all output %q: %v", output, err)

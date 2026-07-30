@@ -114,6 +114,37 @@ func TestStartTask(t *testing.T) {
 	}
 }
 
+func TestPauseTask(t *testing.T) {
+	stor := fixtureStorage(t)
+	ctx := t.Context()
+	project := fixtureProject(t, stor)
+	if err := stor.CreateTask(ctx, storage.Task{
+		Name: "tracked task", ProjectID: project.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Unix(1_700_000_000, 0)
+	for range 2 {
+		if err := stor.StartTask(ctx, 1, startedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	endedAt := startedAt.Add(time.Hour)
+	if err := stor.PauseTask(ctx, 1, endedAt); err != nil {
+		t.Fatal(err)
+	}
+	active, err := stor.GetActiveEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("%d entries remain active", len(active))
+	}
+	if err := stor.PauseTask(ctx, 1, endedAt); err == nil {
+		t.Fatal("inactive task stopped")
+	}
+}
+
 func TestCreateTaskAndEntry(t *testing.T) {
 	stor := fixtureStorage(t)
 	ctx := t.Context()
