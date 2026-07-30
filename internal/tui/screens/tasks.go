@@ -1032,7 +1032,7 @@ func taskTotals(
 	now time.Time,
 ) (time.Duration, map[string]int64) {
 	var duration time.Duration
-	amounts := make(map[string]int64)
+	minorSeconds := make(map[string]int64)
 	for _, entry := range entries {
 		if entry.TaskID == nil || *entry.TaskID != taskID {
 			continue
@@ -1054,7 +1054,11 @@ func taskTotals(
 			continue
 		}
 		seconds := int64(elapsed / time.Second)
-		amounts[rate.Currency] += int64(rate.AmountMinor) * seconds / 3600
+		minorSeconds[rate.Currency] += int64(rate.AmountMinor) * seconds
+	}
+	amounts := make(map[string]int64, len(minorSeconds))
+	for currency, total := range minorSeconds {
+		amounts[currency] = total / 3600
 	}
 	return duration, amounts
 }
@@ -1141,7 +1145,7 @@ func historicalTaskForm(
 		huh.NewInput().
 			Title("Ended at (YYYY-MM-DD HH:MM)").
 			Value(&endedAt).
-			Validate(entryEndTime(&startedAt, false)),
+			Validate(components.EntryEndTime(&startedAt, false)),
 		huh.NewInput().
 			Title("Note").
 			Value(&note),
@@ -1152,8 +1156,14 @@ func historicalTaskForm(
 		"tasks / add past task",
 		form,
 		func(ctx context.Context) error {
-			started, _ := components.ParseDateTime(startedAt)
-			ended, _ := components.ParseDateTime(endedAt)
+			started, err := components.ParseDateTime(startedAt)
+			if err != nil {
+				return err
+			}
+			ended, err := components.ParseDateTime(endedAt)
+			if err != nil {
+				return err
+			}
 			return stor.CreateTaskAndEntry(
 				ctx,
 				storage.Task{
@@ -1335,7 +1345,7 @@ func entryForm(
 		huh.NewInput().
 			Title("Ended at (blank means active)").
 			Value(&endedAt).
-			Validate(entryEndTime(&startedAt, entry != nil)),
+			Validate(components.EntryEndTime(&startedAt, entry != nil)),
 		huh.NewInput().
 			Title("Note").
 			Value(&note),
@@ -1346,10 +1356,16 @@ func entryForm(
 		"tasks / "+task.Name+" / "+action+" time",
 		form,
 		func(ctx context.Context) error {
-			started, _ := components.ParseDateTime(startedAt)
+			started, err := components.ParseDateTime(startedAt)
+			if err != nil {
+				return err
+			}
 			var ended *time.Time
 			if strings.TrimSpace(endedAt) != "" {
-				value, _ := components.ParseDateTime(endedAt)
+				value, err := components.ParseDateTime(endedAt)
+				if err != nil {
+					return err
+				}
 				ended = &value
 			}
 			value := storage.Entry{
@@ -1370,24 +1386,4 @@ func entryForm(
 			return stor.CreateEntry(ctx, value)
 		},
 	)
-}
-
-func entryEndTime(startedAt *string, optional bool) func(string) error {
-	return func(value string) error {
-		if optional && strings.TrimSpace(value) == "" {
-			return nil
-		}
-		if err := components.DateTime(value); err != nil {
-			return err
-		}
-		started, err := components.ParseDateTime(*startedAt)
-		if err != nil {
-			return errors.New("enter a valid start time first")
-		}
-		ended, _ := components.ParseDateTime(value)
-		if !ended.After(started) {
-			return errors.New("end time must be after start time")
-		}
-		return nil
-	}
 }

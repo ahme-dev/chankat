@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"chankat/internal/storage"
 )
 
 func Required(name string) func(string) error {
@@ -17,18 +19,24 @@ func Required(name string) func(string) error {
 }
 
 func NonNegativeAmount(value string) error {
-	amount, err := strconv.Atoi(value)
-	if err != nil || amount < 0 {
-		return errors.New("amount must be a non-negative integer")
+	_, err := ParseAmountMinor(value)
+	return err
+}
+
+func ParseAmountMinor(value string) (int, error) {
+	amount, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, errors.New("amount must be a non-negative integer")
 	}
-	return nil
+	if err := storage.ValidateAmountMinor(amount); err != nil {
+		return 0, errors.New("amount must be a non-negative integer")
+	}
+	return amount, nil
 }
 
 func CurrencyCode(value string) error {
-	if len(strings.TrimSpace(value)) != 3 {
-		return errors.New("currency must be a three-letter code")
-	}
-	return nil
+	_, err := storage.NormalizeCurrency(value)
+	return err
 }
 
 func Date(value string) error {
@@ -58,4 +66,24 @@ func OptionalDateTime(value string) error {
 
 func ParseDateTime(value string) (time.Time, error) {
 	return time.ParseInLocation(DateTimeLayout, strings.TrimSpace(value), time.Local)
+}
+
+func EntryEndTime(startedAt *string, optional bool) func(string) error {
+	return func(value string) error {
+		if optional && strings.TrimSpace(value) == "" {
+			return nil
+		}
+		if err := DateTime(value); err != nil {
+			return err
+		}
+		started, err := ParseDateTime(*startedAt)
+		if err != nil {
+			return errors.New("enter a valid start time first")
+		}
+		ended, err := ParseDateTime(value)
+		if err != nil {
+			return err
+		}
+		return storage.ValidateEntryTimes(started, &ended)
+	}
 }

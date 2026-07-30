@@ -71,6 +71,10 @@ func (s *Storage) GetEntry(ctx context.Context, id int) (Entry, error) {
 }
 
 func (s *Storage) CreateEntry(ctx context.Context, entry Entry) error {
+	if err := ValidateEntryTimes(entry.StartedAt, entry.EndedAt); err != nil {
+		return fmt.Errorf("create entry: %w", err)
+	}
+
 	const query = `
 		INSERT INTO ENTRY (
 			TASK_ID, PROJECT_ID, RATE_ID, STARTED_AT, ENDED_AT, NOTES
@@ -94,6 +98,10 @@ func (s *Storage) CreateEntry(ctx context.Context, entry Entry) error {
 }
 
 func (s *Storage) UpdateEntry(ctx context.Context, entry Entry) error {
+	if err := ValidateEntryTimes(entry.StartedAt, entry.EndedAt); err != nil {
+		return fmt.Errorf("update entry: %w", err)
+	}
+
 	const query = `
 		UPDATE ENTRY
 		SET
@@ -131,11 +139,16 @@ func (s *Storage) UpdateEntry(ctx context.Context, entry Entry) error {
 }
 
 func (s *Storage) PauseEntry(ctx context.Context, id int, endedAt time.Time) error {
+	if err := validateEndTime(endedAt); err != nil {
+		return fmt.Errorf("pause entry: %w", err)
+	}
 	result, err := s.db.ExecContext(
 		ctx,
 		`UPDATE ENTRY
 		 SET ENDED_AT = $1
-		 WHERE ID = $2 AND ENDED_AT IS NULL`,
+		 WHERE ID = $2
+		   AND ENDED_AT IS NULL
+		   AND STARTED_AT < $1`,
 		endedAt.Unix(),
 		id,
 	)
@@ -147,7 +160,7 @@ func (s *Storage) PauseEntry(ctx context.Context, id int, endedAt time.Time) err
 		return fmt.Errorf("get paused entry count: %w", err)
 	}
 	if paused == 0 {
-		return fmt.Errorf("entry %d is not active", id)
+		return fmt.Errorf("entry %d is not active or its end time is not after its start time", id)
 	}
 	return nil
 }

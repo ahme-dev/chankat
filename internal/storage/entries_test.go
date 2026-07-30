@@ -45,6 +45,20 @@ func TestCreateEntry(t *testing.T) {
 			t.Fatalf("unexpected entry: %#v", entry)
 		}
 	})
+
+	t.Run("rejects missing start and reversed range", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		if err := stor.CreateEntry(t.Context(), storage.Entry{}); err == nil {
+			t.Fatal("entry without a start time succeeded")
+		}
+		startedAt := time.Unix(1_700_000_000, 0)
+		endedAt := startedAt.Add(-time.Minute)
+		if err := stor.CreateEntry(t.Context(), storage.Entry{
+			StartedAt: startedAt, EndedAt: &endedAt,
+		}); err == nil {
+			t.Fatal("entry with reversed times succeeded")
+		}
+	})
 }
 
 func TestGetEntries(t *testing.T) {
@@ -158,6 +172,29 @@ func TestPauseEntry(t *testing.T) {
 		err := stor.PauseEntry(ctx, 1, endedAt.Add(time.Hour))
 		if err == nil || !strings.Contains(err.Error(), "not active") {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("rejects an end before the start", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		startedAt := time.Unix(1_700_000_000, 0)
+		if err := stor.CreateEntry(t.Context(), storage.Entry{
+			StartedAt: startedAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := stor.PauseEntry(
+			t.Context(), 1, startedAt.Add(-time.Second),
+		); err == nil {
+			t.Fatal("pause before start succeeded")
+		}
+		entry, err := stor.GetEntry(t.Context(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.EndedAt != nil {
+			t.Fatalf("invalid pause changed entry: %#v", entry)
 		}
 	})
 }

@@ -78,6 +78,35 @@ func TestCreateRate(t *testing.T) {
 		}
 		assertRate(t, rates[0], want)
 	})
+
+	t.Run("rejects invalid amounts and currencies", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		tests := []storage.Rate{
+			{Name: "negative", AmountMinor: -1, Currency: "USD"},
+			{Name: "currency", AmountMinor: 1, Currency: "US1"},
+		}
+		for _, rate := range tests {
+			if err := stor.CreateRate(t.Context(), rate); err == nil {
+				t.Fatalf("CreateRate(%#v) succeeded", rate)
+			}
+		}
+	})
+
+	t.Run("normalizes currency", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		if err := stor.CreateRate(t.Context(), storage.Rate{
+			Name: "standard", AmountMinor: 100, Currency: " usd ",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rates, err := stor.GetRates(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := rates[0].Currency; got != "USD" {
+			t.Fatalf("got currency %q, want USD", got)
+		}
+	})
 }
 
 func TestGetRate(t *testing.T) {

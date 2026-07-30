@@ -54,12 +54,20 @@ func (s *Storage) GetRate(ctx context.Context, id int) (Rate, error) {
 }
 
 func (s *Storage) CreateRate(ctx context.Context, rate Rate) error {
+	if err := ValidateAmountMinor(rate.AmountMinor); err != nil {
+		return fmt.Errorf("create rate: %w", err)
+	}
+	currency, err := NormalizeCurrency(rate.Currency)
+	if err != nil {
+		return fmt.Errorf("create rate: %w", err)
+	}
+
 	const query = `
 		INSERT INTO RATE (NAME, AMOUNT_MINOR, CURRENCY)
 		VALUES ($1, $2, $3)
 	`
 
-	_, err := s.db.ExecContext(ctx, query, rate.Name, rate.AmountMinor, rate.Currency)
+	_, err = s.db.ExecContext(ctx, query, rate.Name, rate.AmountMinor, currency)
 	if err != nil {
 		return fmt.Errorf("create rate: %w", err)
 	}
@@ -68,6 +76,14 @@ func (s *Storage) CreateRate(ctx context.Context, rate Rate) error {
 }
 
 func (s *Storage) UpdateRate(ctx context.Context, rate Rate) error {
+	if err := ValidateAmountMinor(rate.AmountMinor); err != nil {
+		return fmt.Errorf("update rate: %w", err)
+	}
+	currency, err := NormalizeCurrency(rate.Currency)
+	if err != nil {
+		return fmt.Errorf("update rate: %w", err)
+	}
+
 	const query = `
 		UPDATE RATE
 		SET NAME = $1, AMOUNT_MINOR = $2, CURRENCY = $3
@@ -84,7 +100,7 @@ func (s *Storage) UpdateRate(ctx context.Context, rate Rate) error {
 		query,
 		rate.Name,
 		rate.AmountMinor,
-		rate.Currency,
+		currency,
 		rate.ID,
 	)
 	if err != nil {

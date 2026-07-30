@@ -39,3 +39,32 @@ func TestProjectItems(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectItemsRoundAfterAggregation(t *testing.T) {
+	projectID := 1
+	rateID := 1
+	startedAt := time.Unix(1_700_000_000, 0)
+	firstEnd := startedAt.Add(30 * time.Minute)
+	secondEnd := firstEnd.Add(30 * time.Minute)
+	items := projectItems(
+		[]storage.Project{{ID: projectID, Name: "Client", RateID: rateID}},
+		[]storage.Rate{{
+			ID: rateID, Name: "Standard", AmountMinor: 1, Currency: "USD",
+		}},
+		[]storage.Entry{
+			{
+				ProjectID: &projectID, RateID: &rateID,
+				StartedAt: startedAt, EndedAt: &firstEnd,
+			},
+			{
+				ProjectID: &projectID, RateID: &rateID,
+				StartedAt: firstEnd, EndedAt: &secondEnd,
+			},
+		},
+		nil,
+	)
+
+	if got := items[0].balance["USD"]; got != 1 {
+		t.Fatalf("got %d minor units, want 1", got)
+	}
+}

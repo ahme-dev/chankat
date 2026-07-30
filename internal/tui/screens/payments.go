@@ -160,11 +160,22 @@ func paymentForm(
 		"payments / "+action,
 		form,
 		func(ctx context.Context) error {
-			values.AmountMinor, _ = strconv.Atoi(amountMinor)
-			values.Currency = strings.ToUpper(strings.TrimSpace(values.Currency))
+			parsedAmount, err := components.ParseAmountMinor(amountMinor)
+			if err != nil {
+				return err
+			}
+			values.AmountMinor = parsedAmount
 			values.Note = strings.TrimSpace(values.Note)
-			values.PaidAt, _ = components.ParseDate(paidAt)
-			values.PaidForDate, _ = components.ParseDate(paidForDate)
+			parsedPaidAt, err := components.ParseDate(paidAt)
+			if err != nil {
+				return err
+			}
+			values.PaidAt = parsedPaidAt
+			parsedPaidForDate, err := components.ParseDate(paidForDate)
+			if err != nil {
+				return err
+			}
+			values.PaidForDate = parsedPaidForDate
 			if payment == nil {
 				return stor.CreatePayment(ctx, values)
 			}

@@ -69,6 +69,10 @@ func (s *Storage) CreateTaskAndEntry(
 	task Task,
 	entry Entry,
 ) error {
+	if err := ValidateEntryTimes(entry.StartedAt, entry.EndedAt); err != nil {
+		return fmt.Errorf("create task entry: %w", err)
+	}
+
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin task entry: %w", err)
