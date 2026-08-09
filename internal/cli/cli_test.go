@@ -171,6 +171,46 @@ func TestCLIStopsAllTasks(t *testing.T) {
 	}
 }
 
+func TestCLIDashboardCustomPeriod(t *testing.T) {
+	stor := cliStorage(t)
+	runCLI(t, stor, "rates", "create", "--name", "Rate",
+		"--amount-minor", "10000", "--currency", "USD")
+	runCLI(t, stor, "projects", "create", "--name", "Acme", "--rate", "1")
+	runCLI(t, stor, "tasks", "create", "--name", "Build", "--project", "1",
+		"--started-at", "2026-08-02T23:00:00Z",
+		"--ended-at", "2026-08-03T01:00:00Z")
+	runCLI(t, stor, "payments", "create", "--project", "1",
+		"--amount-minor", "5000", "--currency", "USD",
+		"--paid-at", "2026-08-09", "--paid-for", "2026-08-03")
+
+	output := runCLIAt(t, stor, time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
+		"--json", "dashboard", "--from", "2026-08-03", "--to", "2026-08-03")
+	var got dashboardOutput
+	if err := json.Unmarshal([]byte(output), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Period != "custom" || got.TrackedSeconds != 3600 ||
+		got.EarnedMinor["USD"] != 10_000 || got.PaidMinor["USD"] != 5_000 ||
+		len(got.Projects) != 1 {
+		t.Fatalf("dashboard = %#v", got)
+	}
+}
+
+func TestCLIDashboardRejectsInvalidRanges(t *testing.T) {
+	stor := cliStorage(t)
+	for _, args := range [][]string{
+		{"dashboard", "--from", "2026-08-01"},
+		{"dashboard", "--period", "week", "--from", "2026-08-01", "--to", "2026-08-02"},
+		{"dashboard", "--from", "2026-08-02", "--to", "2026-08-01"},
+		{"dashboard", "--period", "quarter"},
+	} {
+		var out bytes.Buffer
+		if err := RunIO(t.Context(), args, "test", stor, &out, &out); err == nil {
+			t.Fatalf("%v succeeded", args)
+		}
+	}
+}
+
 func TestCLIRejectsInvalidArguments(t *testing.T) {
 	stor := cliStorage(t)
 	for _, args := range [][]string{
@@ -216,6 +256,7 @@ func TestFormatTracked(t *testing.T) {
 
 func cliStorage(t *testing.T) *storage.Storage {
 	t.Helper()
+	t.Setenv("CHANKAT_DATA_PATH", "")
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	stor, err := storage.Open()
 	if err != nil {

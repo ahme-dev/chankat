@@ -14,16 +14,15 @@ type Storage struct {
 }
 
 func Open() (*Storage, error) {
-	dir, err := dataDir()
+	path, err := dataPath()
 	if err != nil {
 		return nil, err
 	}
 
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-
-	path := filepath.Join(dir, "data.sqlite")
 
 	db, err := sqlx.Open("sqlite", path)
 	if err != nil {
@@ -37,6 +36,17 @@ func Open() (*Storage, error) {
 	}
 
 	return &Storage{db: db}, nil
+}
+
+func dataPath() (string, error) {
+	if path := os.Getenv("CHANKAT_DATA_PATH"); path != "" {
+		return path, nil
+	}
+	dir, err := dataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "data.sqlite"), nil
 }
 
 func dataDir() (string, error) {

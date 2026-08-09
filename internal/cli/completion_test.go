@@ -32,7 +32,7 @@ func TestStaticCompletion(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{args: []string{""}, want: []string{"rates", "completion", "--json"}},
+		{args: []string{""}, want: []string{"dashboard", "rates", "completion", "--json"}},
 		{args: []string{"--json", "pro"}, want: []string{"projects"}},
 		{args: []string{"tasks", "cr"}, want: []string{"create"}},
 		{args: []string{"completion", ""}, want: []string{"bash"}},
@@ -43,6 +43,10 @@ func TestStaticCompletion(t *testing.T) {
 		{
 			args: []string{"tasks", "stop", "--"},
 			want: []string{"--all", "--help"},
+		},
+		{
+			args: []string{"dashboard", "--"},
+			want: []string{"--period", "--from", "--to", "--project", "--help"},
 		},
 	} {
 		request := analyzeCompletion(test.args)

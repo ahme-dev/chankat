@@ -110,6 +110,8 @@ func (r runner) run(args []string) error {
 		return err
 	case "completion":
 		return r.runCompletion(args[1:])
+	case "dashboard":
+		return r.runDashboard(args[1:])
 	case "rates":
 		return r.runRates(args[1:])
 	case "projects":
@@ -152,6 +154,10 @@ func (r runner) help(args []string) {
 		fmt.Fprintln(r.out, "Usage: chankat completion bash")
 		return
 	}
+	if command[0] == "dashboard" {
+		fmt.Fprintln(r.out, "Usage: "+commandSpecs["dashboard"].commands["show"].usage)
+		return
+	}
 	if len(command) == 1 {
 		if resource, ok := commandSpecs[command[0]]; ok {
 			fmt.Fprintf(
@@ -177,6 +183,7 @@ func (r runner) help(args []string) {
 func (r runner) usage() {
 	fmt.Fprint(r.out, `Usage:
   chankat                         launch the terminal interface
+  chankat [--json] dashboard [options]
   chankat [--json] <resource> <command> [options]
   chankat completion bash
   chankat version
