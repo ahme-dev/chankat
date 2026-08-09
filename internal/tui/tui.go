@@ -15,7 +15,8 @@ import (
 type screen int
 
 const (
-	tasksScreen screen = iota
+	dashboardScreen screen = iota
+	tasksScreen
 	projectsScreen
 	ratesScreen
 	paymentsScreen
@@ -27,6 +28,7 @@ type tab struct {
 }
 
 var tabs = []tab{
+	{label: "Dashboard", screen: dashboardScreen},
 	{label: "Tasks", screen: tasksScreen},
 	{label: "Projects", screen: projectsScreen},
 	{label: "Rates", screen: ratesScreen},
@@ -40,6 +42,7 @@ var (
 
 type model struct {
 	active    screen
+	stats     screens.Stats
 	dashboard screens.Dashboard
 	projects  screens.Projects
 	rates     screens.Rates
@@ -49,7 +52,8 @@ type model struct {
 
 func newModel(ctx context.Context, stor *storage.Storage) model {
 	return model{
-		active:    tasksScreen,
+		active:    dashboardScreen,
+		stats:     screens.NewStats(ctx, stor),
 		dashboard: screens.NewDashboard(ctx, stor),
 		projects:  screens.NewProjects(ctx, stor),
 		rates:     screens.NewRates(ctx, stor),
@@ -59,6 +63,7 @@ func newModel(ctx context.Context, stor *storage.Storage) model {
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
+		m.stats.Init(),
 		m.dashboard.Init(),
 		m.projects.Init(),
 		m.rates.Init(),
@@ -98,12 +103,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "right", "l":
 				return m.activate(adjacentTab(m.active, 1))
 			case "1":
-				return m.activate(tasksScreen)
+				return m.activate(dashboardScreen)
 			case "2":
-				return m.activate(projectsScreen)
+				return m.activate(tasksScreen)
 			case "3":
-				return m.activate(ratesScreen)
+				return m.activate(projectsScreen)
 			case "4":
+				return m.activate(ratesScreen)
+			case "5":
 				return m.activate(paymentsScreen)
 			}
 		}
@@ -116,6 +123,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) updateActive(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch m.active {
+	case dashboardScreen:
+		m.stats, cmd = m.stats.Update(msg)
 	case tasksScreen:
 		m.dashboard, cmd = m.dashboard.Update(msg)
 	case projectsScreen:
@@ -129,17 +138,20 @@ func (m model) updateActive(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateAll(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var commands [4]tea.Cmd
-	m.dashboard, commands[0] = m.dashboard.Update(msg)
-	m.projects, commands[1] = m.projects.Update(msg)
-	m.rates, commands[2] = m.rates.Update(msg)
-	m.payments, commands[3] = m.payments.Update(msg)
+	var commands [5]tea.Cmd
+	m.stats, commands[0] = m.stats.Update(msg)
+	m.dashboard, commands[1] = m.dashboard.Update(msg)
+	m.projects, commands[2] = m.projects.Update(msg)
+	m.rates, commands[3] = m.rates.Update(msg)
+	m.payments, commands[4] = m.payments.Update(msg)
 	return m, tea.Batch(commands[:]...)
 }
 
 func (m model) View() string {
 	var content string
 	switch m.active {
+	case dashboardScreen:
+		content = m.stats.View()
 	case tasksScreen:
 		content = m.dashboard.View()
 	case projectsScreen:
@@ -160,7 +172,7 @@ func (m model) View() string {
 	}
 	content = lipgloss.NewStyle().Height(contentHeight).Render(content)
 	return fmt.Sprintf(
-		"%s\n\n%s\n\n[1-4] tabs  [h/l] cycle\n%s",
+		"%s\n\n%s\n\n[1-5] tabs  [h/l] cycle\n%s",
 		renderTabs(m.active),
 		content,
 		m.actions(),
@@ -178,6 +190,8 @@ func (m model) activate(target screen) (tea.Model, tea.Cmd) {
 	m.active = target
 	var cmd tea.Cmd
 	switch target {
+	case dashboardScreen:
+		cmd = m.stats.Reload()
 	case tasksScreen:
 		cmd = m.dashboard.Reload()
 	case projectsScreen:
@@ -192,6 +206,8 @@ func (m model) activate(target screen) (tea.Model, tea.Cmd) {
 
 func (m model) formActive() bool {
 	switch m.active {
+	case dashboardScreen:
+		return m.stats.FormActive()
 	case tasksScreen:
 		return m.dashboard.FormActive()
 	case projectsScreen:
@@ -207,6 +223,8 @@ func (m model) formActive() bool {
 
 func (m model) globalKeysEnabled() bool {
 	switch m.active {
+	case dashboardScreen:
+		return m.stats.GlobalKeysEnabled()
 	case tasksScreen:
 		return m.dashboard.GlobalKeysEnabled()
 	case projectsScreen:
@@ -222,6 +240,8 @@ func (m model) globalKeysEnabled() bool {
 
 func (m model) actions() string {
 	switch m.active {
+	case dashboardScreen:
+		return m.stats.Actions()
 	case tasksScreen:
 		return m.dashboard.Actions()
 	case projectsScreen:
@@ -266,7 +286,7 @@ func adjacentTab(active screen, offset int) screen {
 			return tabs[next].screen
 		}
 	}
-	return tasksScreen
+	return dashboardScreen
 }
 
 func Run(ctx context.Context, stor *storage.Storage) error {

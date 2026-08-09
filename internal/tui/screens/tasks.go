@@ -69,7 +69,7 @@ type entryStartFailedMsg struct {
 var (
 	dashboardSectionStyle = list.DefaultStyles().StatusBar
 	dashboardMutedStyle   = list.DefaultStyles().NoItems.PaddingLeft(2)
-	dashboardErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	dashboardErrorStyle   = lipgloss.NewStyle().Foreground(components.AccentColor)
 )
 
 type dashboardItem struct {

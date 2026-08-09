@@ -76,7 +76,7 @@ func analyzeCompletion(args []string) completionRequest {
 			prefix: current,
 			candidates: append(
 				append([]string{}, resourceOrder...),
-				"version", "help", "completion", "--json",
+				"dashboard", "version", "help", "completion", "--json",
 			),
 		}
 	}
@@ -87,6 +87,10 @@ func analyzeCompletion(args []string) completionRequest {
 			}
 		}
 		return completionRequest{prefix: current}
+	}
+	if args[0] == "dashboard" {
+		spec := commandSpecs["dashboard"].commands["show"]
+		return analyzeCommandOptions(spec, args, 1)
 	}
 
 	resource, ok := commandSpecs[args[0]]
@@ -126,6 +130,39 @@ func analyzeCompletion(args []string) completionRequest {
 		}
 	}
 	return completionRequest{prefix: current, candidates: options}
+}
+
+func analyzeCommandOptions(
+	spec commandSpec,
+	args []string,
+	optionStart int,
+) completionRequest {
+	current := args[len(args)-1]
+	if option, value, ok := optionWithValue(spec, current); ok {
+		return completionRequest{
+			prefix: value, value: option.completionValue(),
+			valueFlag: "--" + option.name,
+		}
+	}
+	if len(args) > optionStart+1 {
+		if option, ok := findOption(spec, args[len(args)-2]); ok &&
+			option.completionValue() != completeNone {
+			return completionRequest{prefix: current, value: option.completionValue()}
+		}
+	}
+	used := make(map[string]bool)
+	for _, arg := range args[optionStart : len(args)-1] {
+		name := strings.TrimPrefix(strings.SplitN(arg, "=", 2)[0], "--")
+		used[name] = true
+	}
+	candidates := make([]string, 0, len(spec.options)+1)
+	for _, option := range spec.options {
+		if !used[option.name] {
+			candidates = append(candidates, "--"+option.name)
+		}
+	}
+	candidates = append(candidates, "--help")
+	return completionRequest{prefix: current, candidates: candidates}
 }
 
 func commandOptions(spec commandSpec, args []string) []string {

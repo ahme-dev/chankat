@@ -39,6 +39,19 @@ var resourceOrder = []string{
 }
 
 var commandSpecs = map[string]resourceSpec{
+	"dashboard": {
+		commands: map[string]commandSpec{
+			"show": {
+				usage: "chankat dashboard [--period day|week|month|all] [--from DATE --to DATE] [--project ID]",
+				options: []optionSpec{
+					{name: "period"},
+					{name: "from"},
+					{name: "to"},
+					{name: "project", value: completeProjectID},
+				},
+			},
+		},
+	},
 	"rates": {
 		actions: []string{"list", "get", "create", "update", "delete"},
 		commands: map[string]commandSpec{

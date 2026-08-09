@@ -12,8 +12,14 @@ func TestAdjacentTab(t *testing.T) {
 		}
 	})
 
-	t.Run("previous wraps", func(t *testing.T) {
-		if got := adjacentTab(tasksScreen, -1); got != paymentsScreen {
+	t.Run("previous", func(t *testing.T) {
+		if got := adjacentTab(tasksScreen, -1); got != dashboardScreen {
+			t.Fatalf("got screen %d, want dashboard", got)
+		}
+	})
+
+	t.Run("dashboard previous wraps", func(t *testing.T) {
+		if got := adjacentTab(dashboardScreen, -1); got != paymentsScreen {
 			t.Fatalf("got screen %d, want payments", got)
 		}
 	})

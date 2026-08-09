@@ -1,12 +1,15 @@
 package storage_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"chankat/internal/storage"
 )
 
 func TestOpenAndMigrate(t *testing.T) {
+	t.Setenv("CHANKAT_DATA_PATH", "")
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	stor, err := storage.Open()
@@ -67,9 +70,27 @@ func TestOpenAndMigrate(t *testing.T) {
 	}
 }
 
+func TestOpenUsesConfiguredDataPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "development.sqlite")
+	t.Setenv("CHANKAT_DATA_PATH", path)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "ignored"))
+
+	stor, err := storage.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("configured database was not created: %v", err)
+	}
+}
+
 func fixtureStorage(t *testing.T) *storage.Storage {
 	t.Helper()
 
+	t.Setenv("CHANKAT_DATA_PATH", "")
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	stor, err := storage.Open()

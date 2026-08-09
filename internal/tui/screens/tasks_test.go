@@ -227,6 +227,7 @@ func TestDashboardKeyboardNavigation(t *testing.T) {
 }
 
 func TestPauseTaskStopsAllTaskEntries(t *testing.T) {
+	t.Setenv("CHANKAT_DATA_PATH", "")
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	stor, err := storage.Open()
 	if err != nil {

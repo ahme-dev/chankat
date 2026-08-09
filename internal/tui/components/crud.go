@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type crudOperation int
@@ -64,7 +63,7 @@ func NewPage[T list.Item](ctx context.Context, config Config[T]) Page[T] {
 	delegate := NewListDelegate()
 	items := list.New(nil, delegate, 0, 0)
 	items.SetShowTitle(false)
-	items.Styles.FilterCursor = items.Styles.FilterCursor.Foreground(lipgloss.Color("9"))
+	items.Styles.FilterCursor = items.Styles.FilterCursor.Foreground(AccentColor)
 	if config.Embedded {
 		items.SetShowStatusBar(false)
 	}
@@ -76,13 +75,12 @@ func NewPage[T list.Item](ctx context.Context, config Config[T]) Page[T] {
 func NewListDelegate() list.DefaultDelegate {
 	delegate := list.NewDefaultDelegate()
 	delegate.SetSpacing(0)
-	red := lipgloss.Color("9")
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(red).
-		BorderLeftForeground(red)
+		Foreground(AccentColor).
+		BorderLeftForeground(AccentColor)
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(red).
-		BorderLeftForeground(red)
+		Foreground(AccentColor).
+		BorderLeftForeground(AccentColor)
 	return delegate
 }
 

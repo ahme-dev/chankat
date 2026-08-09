@@ -48,3 +48,38 @@ Release archives are built for Linux, macOS and Windows.
 | ![Tasks screen](assets/sc-tasks.png) | ![Payments screen](assets/sc-payments.png) |
 | Project editor | Payment editor |
 | ![Project editor](assets/sc-editor-projects.png) | ![Payment editor](assets/sc-editor-payments.png) |
+
+## Contributing
+
+Build and test changes with the Makefile:
+
+```sh
+make build
+make test
+```
+
+Repository structure:
+
+```text
+cmd/                     application and development command entry points
+internal/cli/            CLI parsing and output
+internal/storage/        SQLite access, schema, validation and aggregation
+internal/tui/            terminal application and tab navigation
+internal/tui/components/ reusable TUI controls and formatting
+internal/tui/screens/    TUI screens and forms
+assets/                  screenshots and other static files
+```
+
+Keep command entry points limited to startup and dependency wiring. Put database
+operations and data aggregation in `internal/storage`. CLI behavior belongs in
+`internal/cli`; TUI screens belong in `internal/tui/screens`, with reusable UI
+code in `internal/tui/components`. Keep tests beside the code they cover.
+
+Set `CHANKAT_DATA_PATH` to override the SQLite database file. Development
+commands use `.dev-data/data.sqlite`, leaving the installed application's user
+database untouched:
+
+```sh
+make seed
+make run
+```
