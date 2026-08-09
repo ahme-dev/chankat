@@ -67,6 +67,37 @@ func MovePeriod(period Period, offset int) Period {
 	return period
 }
 
+func StepPeriodKind(period Period, offset int, now time.Time) Period {
+	if offset == 0 {
+		return period
+	}
+	kinds := [...]PeriodKind{Day, Week, Month, All}
+	index := len(kinds) - 1
+	for i, kind := range kinds {
+		if period.Kind == kind {
+			index = i
+			break
+		}
+	}
+	if offset < 0 {
+		offset = -1
+	} else {
+		offset = 1
+	}
+	index += offset
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(kinds) {
+		index = len(kinds) - 1
+	}
+	result, err := CurrentPeriod(kinds[index], now)
+	if err != nil {
+		return period
+	}
+	return result
+}
+
 func (p Period) Label() string {
 	if p.Kind == All {
 		return "All time"
@@ -76,4 +107,38 @@ func (p Period) Label() string {
 	}
 	return p.Start.Format("02 Jan 2006") + " – " +
 		p.End.AddDate(0, 0, -1).Format("02 Jan 2006")
+}
+
+// EntriesInPeriod returns entries clipped to the half-open period interval.
+// Active entries remain active when the period includes now.
+func EntriesInPeriod(entries []Entry, period Period, now time.Time) []Entry {
+	result := make([]Entry, 0, len(entries))
+	for _, entry := range entries {
+		endedAt := now
+		if entry.EndedAt != nil && entry.EndedAt.Before(endedAt) {
+			endedAt = *entry.EndedAt
+		}
+		if !period.End.IsZero() && period.End.Before(endedAt) {
+			endedAt = period.End
+		}
+		startedAt := entry.StartedAt
+		if !period.Start.IsZero() && period.Start.After(startedAt) {
+			startedAt = period.Start
+		}
+		if !endedAt.After(startedAt) {
+			continue
+		}
+
+		clipped := entry
+		clipped.StartedAt = startedAt
+		periodIncludesNow := period.End.IsZero() || period.End.After(now)
+		if entry.EndedAt == nil && periodIncludesNow {
+			clipped.EndedAt = nil
+		} else {
+			end := endedAt
+			clipped.EndedAt = &end
+		}
+		result = append(result, clipped)
+	}
+	return result
 }

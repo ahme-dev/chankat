@@ -10,35 +10,31 @@ import (
 	"chankat/internal/storage"
 	"chankat/internal/tui/components"
 
+	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type Stats struct {
-	ctx      context.Context
-	stor     *storage.Storage
-	period   storage.Period
-	now      time.Time
-	projects []storage.Project
-	tasks    []storage.Task
-	rates    []storage.Rate
-	entries  []storage.Entry
-	payments []storage.Payment
-	summary  storage.DashboardSummary
-	list     list.Model
-	detail   bool
-	detailID int
-	loading  bool
-	err      error
-	spinner  spinner.Model
-	width    int
-	height   int
-	form     *huh.Form
-	from     string
-	to       string
+	ctx        context.Context
+	stor       *storage.Storage
+	period     storage.Period
+	now        time.Time
+	projects   []storage.Project
+	tasks      []storage.Task
+	rates      []storage.Rate
+	entries    []storage.Entry
+	payments   []storage.Payment
+	summary    storage.DashboardSummary
+	list       list.Model
+	loading    bool
+	err        error
+	spinner    spinner.Model
+	width      int
+	height     int
+	periodMenu *components.PeriodMenu
 }
 
 type statsLoadedMsg struct {
@@ -51,6 +47,11 @@ type statsLoadedMsg struct {
 
 type statsFailedMsg struct{ err error }
 type statsTickMsg time.Time
+
+type OpenTasksMsg struct {
+	ProjectID int
+	Period    storage.Period
+}
 
 type statsProjectItem struct {
 	project storage.DashboardProjectSummary
@@ -68,18 +69,6 @@ func (i statsProjectItem) Description() string {
 	return description
 }
 func (i statsProjectItem) FilterValue() string { return i.project.ProjectName }
-
-type statsTaskItem struct{ task storage.DashboardTaskSummary }
-
-func (i statsTaskItem) Title() string { return i.task.TaskName }
-func (i statsTaskItem) Description() string {
-	description := components.FormatDuration(i.task.Tracked) + " tracked"
-	if amounts := formatStatsAmounts(i.task.EarnedMinor); amounts != "" {
-		description += " · " + amounts + " earned"
-	}
-	return description
-}
-func (i statsTaskItem) FilterValue() string { return i.task.TaskName }
 
 func NewStats(ctx context.Context, stor *storage.Storage) Stats {
 	now := time.Now()
@@ -103,30 +92,28 @@ func (m Stats) Init() tea.Cmd {
 }
 
 func (m Stats) Update(msg tea.Msg) (Stats, tea.Cmd) {
-	if m.form != nil {
+	if m.periodMenu != nil {
+		if tick, ok := msg.(statsTickMsg); ok {
+			m.updateNow(time.Time(tick))
+			return m, tea.Batch(m.refresh(), tickStats())
+		}
 		if key, ok := msg.(tea.KeyMsg); ok && key.String() == "esc" {
-			m.form = nil
+			m.periodMenu = nil
 			return m, nil
 		}
-		updated, cmd := m.form.Update(msg)
-		m.form = updated.(*huh.Form)
-		if m.form.State == huh.StateAborted {
-			m.form = nil
+		cmd := m.periodMenu.Update(msg)
+		if m.periodMenu.Aborted() {
+			m.periodMenu = nil
 			return m, nil
 		}
-		if m.form.State == huh.StateCompleted {
+		if m.periodMenu.Completed() {
 			var refreshCmd tea.Cmd
-			start, startErr := components.ParseDate(m.from)
-			end, endErr := components.ParseDate(m.to)
-			if startErr == nil && endErr == nil {
-				period, err := storage.CustomPeriod(start, end)
-				if err == nil {
-					m.period = period
-					m.detail = false
-					refreshCmd = m.refresh()
-				}
+			period, err := m.periodMenu.Period(m.now)
+			if err == nil {
+				m.period = period
+				refreshCmd = m.refresh()
 			}
-			m.form = nil
+			m.periodMenu = nil
 			return m, tea.Batch(cmd, refreshCmd)
 		}
 		return m, cmd
@@ -159,63 +146,59 @@ func (m Stats) Update(msg tea.Msg) (Stats, tea.Cmd) {
 		if m.list.FilterState() == list.Filtering {
 			var cmd tea.Cmd
 			m.list, cmd = m.list.Update(msg)
+			m.resizeList()
 			return m, cmd
 		}
 		switch msg.String() {
-		case "d":
-			return m, m.setPeriod(storage.Day)
-		case "w":
-			return m, m.setPeriod(storage.Week)
-		case "m":
-			return m, m.setPeriod(storage.Month)
-		case "a":
+		case "f":
+			return m.openPeriodMenu()
+		case "F":
 			return m, m.setPeriod(storage.All)
-		case "[":
+		case "shift+left", "H":
 			m.period = storage.MovePeriod(m.period, -1)
-			m.detail = false
 			return m, m.refresh()
-		case "]":
+		case "shift+right", "L":
 			return m, m.moveForward()
-		case "c":
-			return m.openCustomPeriod()
+		case "shift+up", "K":
+			m.period = storage.StepPeriodKind(m.period, -1, m.now)
+			return m, m.refresh()
+		case "shift+down", "J":
+			m.period = storage.StepPeriodKind(m.period, 1, m.now)
+			return m, m.refresh()
 		case "enter":
 			if item, ok := m.list.SelectedItem().(statsProjectItem); ok {
-				m.detail = true
-				m.detailID = dashboardProjectID(item.project)
-				m.list.ResetFilter()
-				return m, m.refreshItems()
+				message := OpenTasksMsg{
+					ProjectID: dashboardProjectID(item.project),
+					Period:    m.period,
+				}
+				return m, func() tea.Msg { return message }
 			}
 			return m, nil
-		case "esc":
-			if m.detail {
-				m.detail = false
-				m.list.ResetFilter()
-				cmd := m.refreshItems()
-				m.selectProject(m.detailID)
-				return m, cmd
-			}
 		case "r":
 			m.loading = true
 			return m, loadStats(m.ctx, m.stor)
 		}
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
+		m.resizeList()
 		return m, cmd
 	case tea.MouseMsg:
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
+		m.resizeList()
 		return m, cmd
 	default:
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
+		m.resizeList()
 		return m, cmd
 	}
 	return m, nil
 }
 
 func (m Stats) View() string {
-	if m.form != nil {
-		return "dashboard / custom period\n\n" + m.form.View() + "\n\n[esc] back"
+	if m.periodMenu != nil {
+		return "dashboard / filters\n\n" + m.periodMenu.View() + "\n\n[esc] back"
 	}
 	if m.loading {
 		return m.spinner.View() + " Loading dashboard..."
@@ -240,15 +223,183 @@ func (m Stats) headerView() string {
 			components.FormatMoney(m.summary.PaidMinor[currency], currency),
 			components.FormatMoney(m.summary.NetMinor[currency], currency))
 	}
-	if m.detail {
-		for _, project := range m.summary.Projects {
-			if dashboardProjectID(project) == m.detailID {
-				b.WriteString("\n\n" + project.ProjectName + " / tasks")
-				break
+	if chart := m.timelineChartView(lipgloss.Height(b.String())); chart != "" {
+		b.WriteString("\n\nTracked over time by project (hours)\n" + chart)
+	}
+	return b.String()
+}
+
+func (m Stats) timelineChartView(headerHeight int) string {
+	if m.width < 45 {
+		return ""
+	}
+	projects := m.visibleChartProjects()
+	if len(projects) == 0 {
+		return ""
+	}
+	legend := chartLegend(projects, m.width)
+	chartHeight := m.height - headerHeight - lipgloss.Height(legend) - 8
+	if chartHeight < 6 {
+		return ""
+	}
+	if chartHeight > 9 {
+		chartHeight = 9
+	}
+
+	allBuckets := storage.SummarizeDashboardTimeline(
+		m.visibleEntries(), m.period, m.now,
+	)
+	if len(allBuckets) < 2 {
+		return ""
+	}
+	chartPeriod := storage.Period{
+		Kind:  m.period.Kind,
+		Start: allBuckets[0].Start,
+		End:   allBuckets[len(allBuckets)-1].End,
+	}
+	maxHours := 0.0
+	series := make([][]storage.DashboardTimeBucket, len(projects))
+	for i, project := range projects {
+		series[i] = storage.SummarizeDashboardTimeline(
+			m.entriesForProject(dashboardProjectID(project)),
+			chartPeriod,
+			m.now,
+		)
+		for _, bucket := range series[i] {
+			hours := bucket.Tracked.Hours()
+			if hours > maxHours {
+				maxHours = hours
 			}
 		}
 	}
-	return b.String()
+	if maxHours == 0 {
+		return ""
+	}
+	maxHours *= 1.1
+	if maxHours < 1 {
+		maxHours = 1
+	}
+
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	chart := timeserieslinechart.New(
+		m.width,
+		chartHeight,
+		timeserieslinechart.WithTimeRange(
+			allBuckets[0].Start,
+			allBuckets[len(allBuckets)-1].End,
+		),
+		timeserieslinechart.WithYRange(0, maxHours),
+		timeserieslinechart.WithXYSteps(4, 2),
+		timeserieslinechart.WithXLabelFormatter(timelineLabelFormatter(allBuckets)),
+		timeserieslinechart.WithYLabelFormatter(func(_ int, value float64) string {
+			return fmt.Sprintf("%.1fh", value)
+		}),
+		timeserieslinechart.WithAxesStyles(muted, muted),
+	)
+	for i, project := range projects {
+		name := fmt.Sprintf("project-%d", dashboardProjectID(project))
+		chart.SetDataSetStyle(
+			name,
+			lipgloss.NewStyle().Foreground(components.ChartColor(i)),
+		)
+		for _, bucket := range series[i] {
+			chart.PushDataSet(name, timeserieslinechart.TimePoint{
+				Time: bucket.Start, Value: bucket.Tracked.Hours(),
+			})
+		}
+	}
+	chart.DrawBrailleAll()
+	return chart.View() + "\n" + legend
+}
+
+func (m Stats) visibleChartProjects() []storage.DashboardProjectSummary {
+	result := make([]storage.DashboardProjectSummary, 0)
+	for _, item := range m.list.VisibleItems() {
+		project, ok := item.(statsProjectItem)
+		if ok && project.project.Tracked > 0 {
+			result = append(result, project.project)
+		}
+	}
+	return result
+}
+
+func (m Stats) visibleEntries() []storage.Entry {
+	projectIDs := make(map[int]bool)
+	for _, item := range m.list.VisibleItems() {
+		project, ok := item.(statsProjectItem)
+		if ok {
+			projectIDs[dashboardProjectID(project.project)] = true
+		}
+	}
+	result := make([]storage.Entry, 0, len(m.entries))
+	for _, entry := range m.entries {
+		projectID := 0
+		if entry.ProjectID != nil {
+			projectID = *entry.ProjectID
+		}
+		if projectIDs[projectID] {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+func (m Stats) entriesForProject(projectID int) []storage.Entry {
+	result := make([]storage.Entry, 0)
+	for _, entry := range m.entries {
+		entryProjectID := 0
+		if entry.ProjectID != nil {
+			entryProjectID = *entry.ProjectID
+		}
+		if entryProjectID == projectID {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+func chartLegend(
+	projects []storage.DashboardProjectSummary,
+	width int,
+) string {
+	lines := make([]string, 0, 1)
+	line := ""
+	for i, project := range projects {
+		item := lipgloss.NewStyle().Foreground(components.ChartColor(i)).
+			Render("●") + " " + project.ProjectName
+		candidate := item
+		if line != "" {
+			candidate = line + "  " + item
+		}
+		if line != "" && lipgloss.Width(candidate) > width {
+			lines = append(lines, line)
+			line = item
+		} else {
+			line = candidate
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func timelineLabelFormatter(
+	buckets []storage.DashboardTimeBucket,
+) func(int, float64) string {
+	location := buckets[0].Start.Location()
+	layout := "Jan 02"
+	step := buckets[1].Start.Sub(buckets[0].Start)
+	if step <= 2*time.Hour {
+		layout = "15:04"
+	} else if step > 300*24*time.Hour {
+		layout = "2006"
+	} else if step > 20*24*time.Hour {
+		layout = "Jan 06"
+	}
+	return func(_ int, value float64) string {
+		return time.Unix(int64(value), 0).In(location).Format(layout)
+	}
 }
 
 func (m *Stats) refresh() tea.Cmd {
@@ -260,21 +411,6 @@ func (m *Stats) refresh() tea.Cmd {
 }
 
 func (m *Stats) refreshItems() tea.Cmd {
-	if m.detail {
-		for _, project := range m.summary.Projects {
-			if dashboardProjectID(project) != m.detailID {
-				continue
-			}
-			items := make([]list.Item, len(project.Tasks))
-			for i, task := range project.Tasks {
-				items[i] = statsTaskItem{task}
-			}
-			cmd := m.setListItems(items)
-			m.resizeList()
-			return cmd
-		}
-		m.detail = false
-	}
 	items := make([]list.Item, len(m.summary.Projects))
 	for i, project := range m.summary.Projects {
 		items[i] = statsProjectItem{project}
@@ -298,16 +434,6 @@ func (m *Stats) setListItems(items []list.Item) tea.Cmd {
 	}
 	m.list.Select(selected)
 	return cmd
-}
-
-func (m *Stats) selectProject(projectID int) {
-	for i, item := range m.list.Items() {
-		project, ok := item.(statsProjectItem)
-		if ok && dashboardProjectID(project.project) == projectID {
-			m.list.Select(i)
-			return
-		}
-	}
 }
 
 func (m *Stats) resizeList() {
@@ -345,7 +471,6 @@ func (m *Stats) setPeriod(kind storage.PeriodKind) tea.Cmd {
 	period, err := storage.CurrentPeriod(kind, m.now)
 	if err == nil {
 		m.period = period
-		m.detail = false
 		return m.refresh()
 	}
 	return nil
@@ -360,57 +485,23 @@ func (m *Stats) moveForward() tea.Cmd {
 		return nil
 	}
 	m.period = storage.MovePeriod(m.period, 1)
-	m.detail = false
 	return m.refresh()
 }
 
-func (m Stats) openCustomPeriod() (Stats, tea.Cmd) {
-	start := m.now
-	end := m.now
-	if !m.period.Start.IsZero() {
-		start = m.period.Start
-	}
-	if !m.period.End.IsZero() {
-		end = m.period.End.AddDate(0, 0, -1)
-	}
-	m.from = components.FormatDate(start)
-	m.to = components.FormatDate(end)
-	m.form = huh.NewForm(huh.NewGroup(
-		huh.NewInput().Title("From (YYYY-MM-DD)").Value(&m.from).
-			Validate(components.Date),
-		huh.NewInput().Title("To (YYYY-MM-DD, inclusive)").Value(&m.to).
-			Validate(func(value string) error {
-				if err := components.Date(value); err != nil {
-					return err
-				}
-				start, err := components.ParseDate(m.from)
-				if err != nil {
-					return err
-				}
-				end, err := components.ParseDate(value)
-				if err != nil {
-					return err
-				}
-				if end.Before(start) {
-					return fmt.Errorf("end date must not precede start date")
-				}
-				return nil
-			}),
-	)).WithShowHelp(true).WithWidth(m.width)
-	return m, m.form.Init()
+func (m Stats) openPeriodMenu() (Stats, tea.Cmd) {
+	m.periodMenu = components.NewPeriodMenu(m.period, m.now, m.width)
+	return m, m.periodMenu.Init()
 }
 
-func (m Stats) FormActive() bool { return m.form != nil }
+func (m Stats) FormActive() bool { return m.periodMenu != nil }
 func (m Stats) GlobalKeysEnabled() bool {
-	return m.form == nil && m.list.FilterState() != list.Filtering
+	return m.periodMenu == nil && m.list.FilterState() != list.Filtering
 }
 func (m Stats) Actions() string {
-	if m.detail {
-		return "[/] search  [esc] projects  [d/w/m/a] period  " +
-			"[[/]] move period  [c] custom"
-	}
-	return "[/] search  [d/w/m/a] period  [[/]] move period  [c] custom  " +
-		"[j/k] select  [enter] tasks  [r] reload"
+	return "[/] search  [f] filters  [F] reset filters  " +
+		"[shift+up/down or K/J] period  " +
+		"[shift+left/right or H/L] move  " +
+		"[j/k] select  [enter] open tasks  [r] reload"
 }
 
 func (m *Stats) Reload() tea.Cmd {

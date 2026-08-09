@@ -39,25 +39,54 @@ func TestStatsPeriodKeysAndProjectNavigation(t *testing.T) {
 	if m.list.Index() != 1 {
 		t.Fatalf("selected = %d", m.list.Index())
 	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("[")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftLeft})
 	if got := m.period.Start.Format("2006-01-02"); got != "2026-08-08" {
 		t.Fatalf("period start = %s", got)
 	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	if got := m.period.Start.Format("2006-01-02"); got != "2026-08-09" {
+		t.Fatalf("period start after L = %s", got)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'H'}})
+	if got := m.period.Start.Format("2006-01-02"); got != "2026-08-08" {
+		t.Fatalf("period start after H = %s", got)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	if m.periodMenu == nil {
+		t.Fatal("filter key did not open the period menu")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m.setPeriod(storage.Week)
 	if m.period.Kind != storage.Week {
 		t.Fatalf("period = %s", m.period.Kind)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'J'}})
+	if m.period.Kind != storage.Month {
+		t.Fatalf("period after J = %s", m.period.Kind)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'K'}})
+	if m.period.Kind != storage.Week {
+		t.Fatalf("period after K = %s", m.period.Kind)
 	}
 	if !strings.Contains(m.View(), "03 Aug 2026") {
 		t.Fatalf("view = %q", m.View())
 	}
-
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if _, ok := m.list.SelectedItem().(statsTaskItem); !ok || !m.detail {
-		t.Fatalf("detail list item = %#v", m.list.SelectedItem())
+	if !strings.Contains(m.View(), "Tracked over time by project (hours)") {
+		t.Fatalf("view has no timeline chart: %q", m.View())
 	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
-	if _, ok := m.list.SelectedItem().(statsProjectItem); !ok || m.detail {
-		t.Fatalf("project list item = %#v", m.list.SelectedItem())
+	if !strings.Contains(m.View(), "●") {
+		t.Fatalf("view has no chart legend: %q", m.View())
+	}
+	if got := strings.Count(m.View(), "●"); got != 2 {
+		t.Fatalf("chart legend entries = %d, want 2", got)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+
+	var cmd tea.Cmd
+	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	message, ok := cmd().(OpenTasksMsg)
+	if !ok || message.ProjectID != 2 || message.Period.Kind != storage.Week {
+		t.Fatalf("open tasks message = %#v", message)
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	if m.GlobalKeysEnabled() {

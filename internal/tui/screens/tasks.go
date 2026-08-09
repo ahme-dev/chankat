@@ -20,26 +20,36 @@ import (
 )
 
 type Dashboard struct {
-	ctx         context.Context
-	stor        *storage.Storage
-	entries     []storage.Entry
-	projectList []storage.Project
-	taskList    []storage.Task
-	projects    map[int]string
-	tasks       map[int]string
-	rates       map[int]storage.Rate
-	active      list.Model
-	activeItems []storage.Entry
-	taskPage    components.Page[taskItem]
-	entryPage   *components.Page[entryItem]
-	detailTask  *storage.Task
-	focus       dashboardRow
-	spinner     spinner.Model
-	now         time.Time
-	err         error
-	loading     bool
-	viewport    viewport.Model
+	ctx             context.Context
+	stor            *storage.Storage
+	entries         []storage.Entry
+	projectList     []storage.Project
+	taskList        []storage.Task
+	projects        map[int]string
+	tasks           map[int]string
+	rates           map[int]storage.Rate
+	active          list.Model
+	activeItems     []storage.Entry
+	taskPage        components.Page[taskItem]
+	entryPage       *components.Page[entryItem]
+	detailTask      *storage.Task
+	focus           dashboardRow
+	spinner         spinner.Model
+	now             time.Time
+	err             error
+	loading         bool
+	viewport        viewport.Model
+	filter          *TaskListFilter
+	filterMenu      *components.PeriodMenu
+	filterProjectID *int
 }
+
+type TaskListFilter struct {
+	ProjectID int
+	Period    storage.Period
+}
+
+const allProjectsFilter = -1
 
 type dashboardLoadedMsg struct {
 	entries  []storage.Entry
@@ -82,6 +92,10 @@ func (i dashboardItem) Description() string { return i.description }
 func (i dashboardItem) FilterValue() string { return i.title + " " + i.description }
 
 func NewDashboard(ctx context.Context, stor *storage.Storage) Dashboard {
+	filter := &TaskListFilter{
+		ProjectID: allProjectsFilter,
+		Period:    storage.Period{Kind: storage.All},
+	}
 	m := Dashboard{
 		ctx:      ctx,
 		stor:     stor,
@@ -91,8 +105,9 @@ func NewDashboard(ctx context.Context, stor *storage.Storage) Dashboard {
 		viewport: viewport.New(0, 0),
 		now:      time.Now(),
 		loading:  true,
+		filter:   filter,
 	}
-	m.taskPage = newTaskPage(ctx, stor, func() tea.Cmd {
+	m.taskPage = newTaskPage(ctx, stor, filter, func() tea.Cmd {
 		return loadDashboard(ctx, stor)
 	})
 	return m
@@ -108,10 +123,40 @@ func (m Dashboard) Init() tea.Cmd {
 }
 
 func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
+	if m.filterMenu != nil {
+		if tick, ok := msg.(dashboardTickMsg); ok {
+			periodChanged := m.updateFilterNow(time.Time(tick))
+			m.refreshTables()
+			var filterCmd tea.Cmd
+			if periodChanged {
+				filterCmd = m.refreshTaskPage()
+			}
+			return m, tea.Batch(tickDashboard(), filterCmd)
+		}
+		if key, ok := msg.(tea.KeyMsg); ok && key.String() == "esc" {
+			m.closeFilterMenu()
+			return m, nil
+		}
+		cmd := m.filterMenu.Update(msg)
+		if m.filterMenu.Aborted() {
+			m.closeFilterMenu()
+			return m, nil
+		}
+		if m.filterMenu.Completed() {
+			filterCmd := m.applyFilterDraft()
+			m.closeFilterMenu()
+			return m, tea.Batch(cmd, filterCmd)
+		}
+		return m, cmd
+	}
 	if _, ok := msg.(dashboardTickMsg); ok {
-		m.now = time.Time(msg.(dashboardTickMsg))
+		periodChanged := m.updateFilterNow(time.Time(msg.(dashboardTickMsg)))
 		m.refreshTables()
-		return m, tickDashboard()
+		var filterCmd tea.Cmd
+		if periodChanged {
+			filterCmd = m.refreshTaskPage()
+		}
+		return m, tea.Batch(tickDashboard(), filterCmd)
 	}
 	if m.entryPage != nil && m.entryPage.FormActive() {
 		var cmd tea.Cmd
@@ -158,6 +203,7 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 		m.loading = false
 		m.err = nil
 		m.refreshTables()
+		taskCmd = tea.Batch(taskCmd, m.refreshTaskPage())
 	case dashboardFailedMsg:
 		m.loading = false
 		m.err = msg.err
@@ -194,6 +240,24 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 			return m, taskCmd
 		}
 		switch msg.String() {
+		case "f":
+			return m.openFilterMenu()
+		case "F":
+			return m, m.resetFilter()
+		case "shift+left", "H":
+			m.filter.Period = storage.MovePeriod(m.filter.Period, -1)
+			m.refreshTables()
+			return m, m.refreshTaskPage()
+		case "shift+right", "L":
+			return m, m.moveFilterForward()
+		case "shift+up", "K":
+			m.filter.Period = storage.StepPeriodKind(m.filter.Period, -1, m.now)
+			m.refreshTables()
+			return m, m.refreshTaskPage()
+		case "shift+down", "J":
+			m.filter.Period = storage.StepPeriodKind(m.filter.Period, 1, m.now)
+			m.refreshTables()
+			return m, m.refreshTaskPage()
 		case "/", "n":
 			m.setFocus(dashboardTaskRow)
 			m.taskPage, taskCmd = m.taskPage.Update(msg)
@@ -306,6 +370,9 @@ func (m Dashboard) Update(msg tea.Msg) (Dashboard, tea.Cmd) {
 }
 
 func (m Dashboard) View() string {
+	if m.filterMenu != nil {
+		return "tasks / filters\n\n" + m.filterMenu.View() + "\n\n[esc] back"
+	}
 	if m.entryPage != nil && m.entryPage.FormActive() {
 		return m.entryPage.View()
 	}
@@ -333,6 +400,7 @@ func (m Dashboard) View() string {
 
 func (m Dashboard) content() string {
 	var sections []string
+	sections = append(sections, dashboardMutedStyle.Render(m.filterLabel()))
 	var active strings.Builder
 	active.WriteString(dashboardSectionStyle.Render(
 		countLabel(len(m.activeItems), "active task"),
@@ -367,9 +435,10 @@ func countLabel(count int, singular string) string {
 }
 
 func (m *Dashboard) refreshTables() {
+	entries := m.filteredEntries()
 	active := make([]list.Item, 0)
 	m.activeItems = m.activeItems[:0]
-	for _, entry := range m.entries {
+	for _, entry := range entries {
 		if entry.EndedAt == nil {
 			m.activeItems = append(m.activeItems, entry)
 			duration := m.now.Sub(entry.StartedAt)
@@ -379,7 +448,7 @@ func (m *Dashboard) refreshTables() {
 			amounts := make(map[string]int64)
 			if entry.TaskID != nil {
 				duration, amounts = taskTotals(
-					m.entries,
+					entries,
 					m.rates,
 					*entry.TaskID,
 					m.now,
@@ -418,6 +487,185 @@ func (m *Dashboard) refreshTables() {
 		m.focus = dashboardActiveRow
 	}
 	m.setFocus(m.focus)
+}
+
+func (m Dashboard) filteredEntries() []storage.Entry {
+	entries := m.entries
+	if m.filter == nil {
+		return entries
+	}
+	periodFiltered := m.filter.Period.Kind != storage.All ||
+		!m.filter.Period.Start.IsZero() || !m.filter.Period.End.IsZero()
+	if periodFiltered {
+		entries = storage.EntriesInPeriod(entries, m.filter.Period, m.now)
+	}
+	if m.filter.ProjectID != allProjectsFilter {
+		entries = entriesForProject(entries, m.filter.ProjectID)
+	}
+	return entries
+}
+
+func entriesForProject(entries []storage.Entry, projectID int) []storage.Entry {
+	result := make([]storage.Entry, 0, len(entries))
+	for _, entry := range entries {
+		entryProjectID := 0
+		if entry.ProjectID != nil {
+			entryProjectID = *entry.ProjectID
+		}
+		if entryProjectID == projectID {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+func (m *Dashboard) refreshTaskPage() tea.Cmd {
+	if m.filter == nil {
+		return nil
+	}
+	return m.taskPage.SetItems(taskItemsForFilter(
+		m.taskList,
+		m.projectList,
+		m.entries,
+		mapRates(m.rates),
+		*m.filter,
+		m.now,
+	))
+}
+
+func mapRates(rates map[int]storage.Rate) []storage.Rate {
+	result := make([]storage.Rate, 0, len(rates))
+	for _, rate := range rates {
+		result = append(result, rate)
+	}
+	return result
+}
+
+func (m *Dashboard) ApplyFilter(projectID int, period storage.Period) tea.Cmd {
+	if m.filter == nil {
+		m.filter = &TaskListFilter{}
+	}
+	m.filter.ProjectID = projectID
+	m.filter.Period = period
+	m.detailTask = nil
+	m.entryPage = nil
+	m.taskPage.ResetFilter()
+	m.viewport.SetYOffset(0)
+	m.refreshTables()
+	return tea.Batch(m.refreshTaskPage(), loadDashboard(m.ctx, m.stor))
+}
+
+func (m *Dashboard) resetFilter() tea.Cmd {
+	return m.ApplyFilter(
+		allProjectsFilter,
+		storage.Period{Kind: storage.All},
+	)
+}
+
+func (m Dashboard) openFilterMenu() (Dashboard, tea.Cmd) {
+	projectID := allProjectsFilter
+	if m.filter != nil {
+		projectID = m.filter.ProjectID
+	}
+	m.filterProjectID = &projectID
+	projectOptions := []huh.Option[int]{
+		huh.NewOption("All projects", allProjectsFilter),
+		huh.NewOption("No project", 0),
+	}
+	for _, project := range m.projectList {
+		projectOptions = append(
+			projectOptions, huh.NewOption(project.Name, project.ID),
+		)
+	}
+	projectField := huh.NewSelect[int]().
+		Title("Project").
+		Options(projectOptions...).
+		Value(m.filterProjectID)
+	period := storage.Period{Kind: storage.All}
+	if m.filter != nil {
+		period = m.filter.Period
+	}
+	m.filterMenu = components.NewPeriodMenu(
+		period,
+		m.now,
+		m.viewport.Width,
+		projectField,
+	)
+	return m, m.filterMenu.Init()
+}
+
+func (m *Dashboard) applyFilterDraft() tea.Cmd {
+	if m.filterMenu == nil || m.filterProjectID == nil {
+		return nil
+	}
+	period, err := m.filterMenu.Period(m.now)
+	if err != nil {
+		m.err = err
+		return nil
+	}
+	m.err = nil
+	return m.ApplyFilter(*m.filterProjectID, period)
+}
+
+func (m *Dashboard) closeFilterMenu() {
+	m.filterMenu = nil
+	m.filterProjectID = nil
+}
+
+func (m *Dashboard) moveFilterForward() tea.Cmd {
+	if m.filter == nil || m.filter.Period.Kind == storage.All ||
+		m.filter.Period.Kind == "" {
+		return nil
+	}
+	current, err := storage.CurrentPeriod(m.filter.Period.Kind, m.now)
+	if err != nil || !m.filter.Period.Start.Before(current.Start) {
+		return nil
+	}
+	m.filter.Period = storage.MovePeriod(m.filter.Period, 1)
+	m.refreshTables()
+	return m.refreshTaskPage()
+}
+
+func (m *Dashboard) updateFilterNow(now time.Time) bool {
+	if m.filter == nil {
+		m.now = now
+		return false
+	}
+	previous := m.filter.Period
+	followsCurrent := false
+	if previous.Kind != "" && previous.Kind != storage.All {
+		current, err := storage.CurrentPeriod(previous.Kind, m.now)
+		followsCurrent = err == nil && previous.Start.Equal(current.Start) &&
+			previous.End.Equal(current.End)
+	}
+	m.now = now
+	if followsCurrent {
+		current, err := storage.CurrentPeriod(previous.Kind, now)
+		if err == nil {
+			m.filter.Period = current
+		}
+	}
+	return !previous.Start.Equal(m.filter.Period.Start) ||
+		!previous.End.Equal(m.filter.Period.End)
+}
+
+func (m Dashboard) filterLabel() string {
+	project := "All projects"
+	period := storage.Period{Kind: storage.All}
+	if m.filter != nil {
+		period = m.filter.Period
+		switch m.filter.ProjectID {
+		case allProjectsFilter:
+		case 0:
+			project = "No project"
+		default:
+			project = m.projects[m.filter.ProjectID]
+			if project == "" {
+				project = fmt.Sprintf("Project %d", m.filter.ProjectID)
+			}
+		}
+	}
+	return "Filter: " + project + " · " + period.Label()
 }
 
 func newDashboardList(focused bool) list.Model {
@@ -470,13 +718,14 @@ func (m *Dashboard) setFocus(focus dashboardRow) {
 }
 
 func (m *Dashboard) ensureFocusVisible() {
+	const filterHeight = 2
 	var y int
 	switch m.focus {
 	case dashboardActiveRow:
 		if len(m.activeItems) == 0 {
 			return
 		}
-		y = 2 + m.active.Index()*2
+		y = filterHeight + 2 + m.active.Index()*2
 	case dashboardTaskRow:
 		if m.taskPage.VisibleCount() == 0 {
 			return
@@ -485,7 +734,7 @@ func (m *Dashboard) ensureFocusVisible() {
 		if len(m.activeItems) > 0 {
 			activeBodyHeight = len(m.activeItems) * 2
 		}
-		y = 3 + activeBodyHeight + 2 + m.taskPage.Index()*2
+		y = filterHeight + 3 + activeBodyHeight + 2 + m.taskPage.Index()*2
 	default:
 		return
 	}
@@ -506,17 +755,18 @@ const (
 )
 
 func (m Dashboard) rowAt(y int) (dashboardRow, int) {
+	const filterHeight = 2
 	activeBodyHeight := 1
 	if len(m.activeItems) > 0 {
 		activeBodyHeight = len(m.activeItems) * 2
-		if offset := y - 2; offset >= 0 && offset%2 == 0 {
+		if offset := y - filterHeight - 2; offset >= 0 && offset%2 == 0 {
 			if index := offset / 2; index < len(m.activeItems) {
 				return dashboardActiveRow, index
 			}
 		}
 	}
 
-	taskTitle := 3 + activeBodyHeight
+	taskTitle := filterHeight + 3 + activeBodyHeight
 	if m.taskPage.VisibleCount() > 0 {
 		if offset := y - taskTitle - 2; offset >= 0 && offset%2 == 0 {
 			if index := offset / 2; index < m.taskPage.VisibleCount() {
@@ -658,11 +908,14 @@ func ratesByID(rates []storage.Rate) map[int]storage.Rate {
 }
 
 func (m Dashboard) FormActive() bool {
-	return m.taskPage.FormActive() ||
+	return m.filterMenu != nil || m.taskPage.FormActive() ||
 		m.entryPage != nil && m.entryPage.FormActive()
 }
 
 func (m Dashboard) GlobalKeysEnabled() bool {
+	if m.filterMenu != nil {
+		return false
+	}
 	if m.entryPage != nil && m.entryPage.FormActive() {
 		return false
 	}
@@ -688,7 +941,9 @@ func (m Dashboard) Actions() string {
 	}
 	return "[/] search  [n] new & track  [a] add past task  " +
 		"[enter] details  [e] edit task  [x/delete] delete  " +
-		"[space] start/pause"
+		"[space] start/pause  [f] filters  [F] reset filters  " +
+		"[shift+up/down or K/J] period  " +
+		"[shift+left/right or H/L] move"
 }
 
 func (m *Dashboard) resizeTaskPage() {
@@ -696,7 +951,7 @@ func (m *Dashboard) resizeTaskPage() {
 	if activeBodyHeight < 1 {
 		activeBodyHeight = 1
 	}
-	height := m.viewport.Height - activeBodyHeight - 6
+	height := m.viewport.Height - activeBodyHeight - 8
 	if height < 4 {
 		height = 4
 	}
@@ -756,7 +1011,7 @@ func (m Dashboard) openSelectedTask() (Dashboard, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	page := newEntryPage(m.ctx, m.stor, task.ID, func() tea.Cmd {
+	page := newEntryPage(m.ctx, m.stor, task.ID, m.filter, func() tea.Cmd {
 		return tea.Batch(
 			loadDashboard(m.ctx, m.stor),
 			m.taskPage.Reload(),
@@ -860,7 +1115,7 @@ func (m *Dashboard) refreshDetailTask() bool {
 func (m Dashboard) detailView() string {
 	task := *m.detailTask
 	project := m.projects[task.ProjectID]
-	duration, amounts := taskTotals(m.entries, m.rates, task.ID, m.now)
+	duration, amounts := taskTotals(m.filteredEntries(), m.rates, task.ID, m.now)
 	summary := project + " · total " + components.FormatDuration(duration)
 	if amount := formatTaskAmounts(amounts); amount != "" {
 		summary += " · " + amount + " earned"
@@ -898,6 +1153,7 @@ type taskFormValues struct {
 func newTaskPage(
 	ctx context.Context,
 	stor *storage.Storage,
+	filter *TaskListFilter,
 	afterSave func() tea.Cmd,
 ) components.Page[taskItem] {
 	config := components.Config[taskItem]{
@@ -920,7 +1176,9 @@ func newTaskPage(
 			if err != nil {
 				return nil, nil, err
 			}
-			return taskItems(tasks, projects, entries, rates), projects, nil
+			return taskItemsForFilter(
+				tasks, projects, entries, rates, *filter, time.Now(),
+			), projects, nil
 		},
 		Create: func(meta any) (*components.Form[taskItem], error) {
 			return taskForm(ctx, stor, nil, meta.([]storage.Project))
@@ -948,8 +1206,68 @@ func taskItems(
 	entries []storage.Entry,
 	rates []storage.Rate,
 ) []taskItem {
+	return summarizedTaskItems(
+		tasks, projects, entries, rates, time.Time{}, false,
+	)
+}
+
+func taskItemsForFilter(
+	tasks []storage.Task,
+	projects []storage.Project,
+	entries []storage.Entry,
+	rates []storage.Rate,
+	filter TaskListFilter,
+	now time.Time,
+) []taskItem {
+	periodFiltered := filter.Period.Kind != storage.All ||
+		!filter.Period.Start.IsZero() || !filter.Period.End.IsZero()
+	if periodFiltered {
+		entries = storage.EntriesInPeriod(entries, filter.Period, now)
+	}
+	if filter.ProjectID != allProjectsFilter {
+		filteredTasks := make([]storage.Task, 0, len(tasks))
+		for _, task := range tasks {
+			if task.ProjectID == filter.ProjectID {
+				filteredTasks = append(filteredTasks, task)
+			}
+		}
+		tasks = filteredTasks
+		entries = entriesForProject(entries, filter.ProjectID)
+	}
+	if periodFiltered {
+		taskIDs := make(map[int]bool)
+		for _, entry := range entries {
+			if entry.TaskID != nil {
+				taskIDs[*entry.TaskID] = true
+			}
+		}
+		filteredTasks := make([]storage.Task, 0, len(tasks))
+		for _, task := range tasks {
+			if taskIDs[task.ID] {
+				filteredTasks = append(filteredTasks, task)
+			}
+		}
+		tasks = filteredTasks
+	}
+	totalsNow := time.Time{}
+	if periodFiltered {
+		totalsNow = now
+	}
+	return summarizedTaskItems(
+		tasks, projects, entries, rates, totalsNow, periodFiltered,
+	)
+}
+
+func summarizedTaskItems(
+	tasks []storage.Task,
+	projects []storage.Project,
+	entries []storage.Entry,
+	rates []storage.Rate,
+	now time.Time,
+	periodFiltered bool,
+) []taskItem {
 	summaries := storage.SummarizeTasks(
-		tasks, projects, entries, rates, time.Time{},
+		tasks, projects, entries, rates, now,
 	)
 	ordered := make([]storage.TaskSummary, 0, len(summaries))
 	for _, summary := range summaries {
@@ -977,7 +1295,11 @@ func taskItems(
 	for _, summary := range ordered {
 		description := summary.Project.Name
 		if summary.LastEndedAt != nil {
-			description += " · total " +
+			totalLabel := "total "
+			if periodFiltered {
+				totalLabel = "period "
+			}
+			description += " · " + totalLabel +
 				components.FormatDuration(summary.Tracked)
 			if amount := formatTaskAmounts(summary.EarnedMinor); amount != "" {
 				description += " · " + amount + " earned"
@@ -1186,6 +1508,7 @@ func newEntryPage(
 	ctx context.Context,
 	stor *storage.Storage,
 	taskID int,
+	filter *TaskListFilter,
 	afterSave func() tea.Cmd,
 ) components.Page[entryItem] {
 	config := components.Config[entryItem]{
@@ -1205,6 +1528,10 @@ func newEntryPage(
 				return nil, nil, err
 			}
 			now := time.Now()
+			if filter != nil && (filter.Period.Kind != storage.All ||
+				!filter.Period.Start.IsZero() || !filter.Period.End.IsZero()) {
+				entries = entriesOverlappingPeriod(entries, filter.Period, now)
+			}
 			return entryItems(entries, task.ID, now), entryMeta{
 				task: task, project: project,
 			}, nil
@@ -1236,6 +1563,25 @@ func newEntryPage(
 		AfterSave: afterSave,
 	}
 	return components.NewPage(ctx, config)
+}
+
+func entriesOverlappingPeriod(
+	entries []storage.Entry,
+	period storage.Period,
+	now time.Time,
+) []storage.Entry {
+	clipped := storage.EntriesInPeriod(entries, period, now)
+	ids := make(map[int]bool, len(clipped))
+	for _, entry := range clipped {
+		ids[entry.ID] = true
+	}
+	result := make([]storage.Entry, 0, len(clipped))
+	for _, entry := range entries {
+		if ids[entry.ID] {
+			result = append(result, entry)
+		}
+	}
+	return result
 }
 
 func entryItems(

@@ -30,6 +30,12 @@ type DashboardTaskSummary struct {
 	EarnedMinor map[string]int64
 }
 
+type DashboardTimeBucket struct {
+	Start   time.Time
+	End     time.Time
+	Tracked time.Duration
+}
+
 type dashboardTaskTotals struct {
 	tracked      time.Duration
 	minorSeconds map[string]int64
@@ -196,6 +202,129 @@ func SummarizeDashboard(
 		return result.Projects[i].ProjectName < result.Projects[j].ProjectName
 	})
 	return result
+}
+
+// SummarizeDashboardTimeline splits tracked time into calendar-aware buckets.
+func SummarizeDashboardTimeline(
+	entries []Entry,
+	period Period,
+	now time.Time,
+) []DashboardTimeBucket {
+	start, end := period.Start, period.End
+	if end.IsZero() {
+		end = now
+	}
+	if start.IsZero() {
+		start = end
+		for _, entry := range entries {
+			if entry.StartedAt.Before(start) {
+				start = entry.StartedAt
+			}
+		}
+	}
+	if !end.After(start) {
+		return nil
+	}
+
+	unit := timelineBucketUnit(period.Kind, end.Sub(start))
+	start = alignTimelineStart(start, unit)
+	buckets := make([]DashboardTimeBucket, 0)
+	for bucketStart := start; bucketStart.Before(end); {
+		bucketEnd := nextTimelineStart(bucketStart, unit)
+		buckets = append(buckets, DashboardTimeBucket{
+			Start: bucketStart,
+			End:   bucketEnd,
+		})
+		bucketStart = bucketEnd
+	}
+
+	for _, entry := range entries {
+		entryEnd := now
+		if entry.EndedAt != nil && entry.EndedAt.Before(entryEnd) {
+			entryEnd = *entry.EndedAt
+		}
+		if entryEnd.After(end) {
+			entryEnd = end
+		}
+		entryStart := entry.StartedAt
+		if entryStart.Before(start) {
+			entryStart = start
+		}
+		if !entryEnd.After(entryStart) {
+			continue
+		}
+		for i := range buckets {
+			overlapStart := entryStart
+			if buckets[i].Start.After(overlapStart) {
+				overlapStart = buckets[i].Start
+			}
+			overlapEnd := entryEnd
+			if buckets[i].End.Before(overlapEnd) {
+				overlapEnd = buckets[i].End
+			}
+			if overlapEnd.After(overlapStart) {
+				buckets[i].Tracked += overlapEnd.Sub(overlapStart)
+			}
+		}
+	}
+	return buckets
+}
+
+type timelineUnit int
+
+const (
+	timelineHour timelineUnit = iota
+	timelineDay
+	timelineMonth
+	timelineYear
+)
+
+func timelineBucketUnit(kind PeriodKind, span time.Duration) timelineUnit {
+	switch kind {
+	case Day:
+		return timelineHour
+	case Week, Month:
+		return timelineDay
+	}
+	switch {
+	case span <= 48*time.Hour:
+		return timelineHour
+	case span <= 90*24*time.Hour:
+		return timelineDay
+	case span <= 2*365*24*time.Hour:
+		return timelineMonth
+	default:
+		return timelineYear
+	}
+}
+
+func alignTimelineStart(value time.Time, unit timelineUnit) time.Time {
+	switch unit {
+	case timelineHour:
+		return time.Date(
+			value.Year(), value.Month(), value.Day(), value.Hour(),
+			0, 0, 0, value.Location(),
+		)
+	case timelineDay:
+		return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
+	case timelineMonth:
+		return time.Date(value.Year(), value.Month(), 1, 0, 0, 0, 0, value.Location())
+	default:
+		return time.Date(value.Year(), 1, 1, 0, 0, 0, 0, value.Location())
+	}
+}
+
+func nextTimelineStart(value time.Time, unit timelineUnit) time.Time {
+	switch unit {
+	case timelineHour:
+		return value.Add(time.Hour)
+	case timelineDay:
+		return value.AddDate(0, 0, 1)
+	case timelineMonth:
+		return value.AddDate(0, 1, 0)
+	default:
+		return value.AddDate(1, 0, 0)
+	}
 }
 
 func minorSecondsToAmounts(values map[string]int64) map[string]int64 {

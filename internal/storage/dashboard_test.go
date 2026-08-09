@@ -90,3 +90,30 @@ func TestSummarizeDashboardKeepsCurrenciesSeparate(t *testing.T) {
 		t.Fatalf("earned = %v", got.EarnedMinor)
 	}
 }
+
+func TestSummarizeDashboardTimelineSplitsEntriesAcrossHours(t *testing.T) {
+	start := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	period, err := storage.CurrentPeriod(storage.Day, start.Add(12*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEnd := start.Add(2*time.Hour + 30*time.Minute)
+	entries := []storage.Entry{
+		{StartedAt: start.Add(30 * time.Minute), EndedAt: &firstEnd},
+		{StartedAt: start.Add(3 * time.Hour)},
+	}
+
+	buckets := storage.SummarizeDashboardTimeline(
+		entries, period, start.Add(4*time.Hour),
+	)
+
+	if len(buckets) != 24 {
+		t.Fatalf("bucket count = %d, want 24", len(buckets))
+	}
+	want := []time.Duration{30 * time.Minute, time.Hour, 30 * time.Minute, time.Hour}
+	for i, duration := range want {
+		if buckets[i].Tracked != duration {
+			t.Errorf("bucket %d = %s, want %s", i, buckets[i].Tracked, duration)
+		}
+	}
+}

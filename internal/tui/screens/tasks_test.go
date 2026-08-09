@@ -105,6 +105,147 @@ func TestDashboardHistoricalEntryDoesNotBecomeLatest(t *testing.T) {
 	}
 }
 
+func TestTaskItemsForProjectAndPeriod(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	period, err := storage.CurrentPeriod(storage.Day, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectOne, projectTwo := 1, 2
+	taskOne, taskTwo := 10, 20
+	firstEnd := period.Start.Add(2 * time.Hour)
+	secondEnd := period.Start.Add(3 * time.Hour)
+	items := taskItemsForFilter(
+		[]storage.Task{
+			{ID: taskOne, Name: "one", ProjectID: projectOne},
+			{ID: taskTwo, Name: "two", ProjectID: projectTwo},
+		},
+		[]storage.Project{
+			{ID: projectOne, Name: "first"},
+			{ID: projectTwo, Name: "second"},
+		},
+		[]storage.Entry{
+			{ID: 1, TaskID: &taskOne, ProjectID: &projectOne,
+				StartedAt: period.Start.Add(-time.Hour), EndedAt: &firstEnd},
+			{ID: 2, TaskID: &taskTwo, ProjectID: &projectTwo,
+				StartedAt: period.Start.Add(time.Hour), EndedAt: &secondEnd},
+		},
+		nil,
+		TaskListFilter{ProjectID: projectOne, Period: period},
+		now,
+	)
+
+	if len(items) != 1 || items[0].task.ID != taskOne {
+		t.Fatalf("unexpected filtered tasks: %#v", items)
+	}
+	if got := items[0].Description(); !strings.Contains(got, "period 2h 00m") {
+		t.Fatalf("got description %q, want clipped period total", got)
+	}
+}
+
+func TestDashboardFilterAdvancesWithCurrentPeriod(t *testing.T) {
+	before := time.Date(2026, 8, 9, 23, 59, 59, 0, time.UTC)
+	after := before.Add(2 * time.Second)
+	period, err := storage.CurrentPeriod(storage.Day, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewDashboard(t.Context(), nil)
+	m.now = before
+	m.filter.Period = period
+
+	if changed := m.updateFilterNow(after); !changed {
+		t.Fatal("current filter did not advance")
+	}
+	if !m.filter.Period.Start.Equal(time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("period start = %s", m.filter.Period.Start)
+	}
+}
+
+func TestEntriesForUnassignedProject(t *testing.T) {
+	projectID := 1
+	entries := []storage.Entry{{ID: 1}, {ID: 2, ProjectID: &projectID}}
+	filtered := entriesForProject(entries, 0)
+	if len(filtered) != 1 || filtered[0].ID != 1 {
+		t.Fatalf("unexpected unassigned entries: %#v", filtered)
+	}
+}
+
+func TestDashboardApplyFilterUpdatesTaskRows(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	period, err := storage.CurrentPeriod(storage.Day, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectOne, projectTwo := 1, 2
+	taskOne, taskTwo := 10, 20
+	end := now.Add(-time.Hour)
+	m := NewDashboard(t.Context(), nil)
+	m.now = now
+	m.loading = false
+	m.projectList = []storage.Project{
+		{ID: projectOne, Name: "first"},
+		{ID: projectTwo, Name: "second"},
+	}
+	m.taskList = []storage.Task{
+		{ID: taskOne, Name: "one", ProjectID: projectOne},
+		{ID: taskTwo, Name: "two", ProjectID: projectTwo},
+	}
+	m.projects = projectNames(m.projectList)
+	m.entries = []storage.Entry{
+		{ID: 1, TaskID: &taskOne, ProjectID: &projectOne,
+			StartedAt: end.Add(-time.Hour), EndedAt: &end},
+		{ID: 2, TaskID: &taskTwo, ProjectID: &projectTwo,
+			StartedAt: end.Add(-time.Hour), EndedAt: &end},
+	}
+
+	m.ApplyFilter(projectTwo, period)
+	selected, ok := m.taskPage.Selected()
+	if !ok || m.taskPage.VisibleCount() != 1 || selected.task.ID != taskTwo {
+		t.Fatalf("unexpected filtered task: %#v", selected)
+	}
+	if got := m.filterLabel(); !strings.Contains(got, "second") ||
+		!strings.Contains(got, period.Label()) {
+		t.Fatalf("filter label = %q", got)
+	}
+}
+
+func TestTaskFilterMenuKeepsProjectSelection(t *testing.T) {
+	m := NewDashboard(t.Context(), nil)
+	m.projectList = []storage.Project{{ID: 7, Name: "project"}}
+	m, _ = m.openFilterMenu()
+	*m.filterProjectID = 7
+	m.applyFilterDraft()
+	if m.filter.ProjectID != 7 {
+		t.Fatalf("project filter = %d", m.filter.ProjectID)
+	}
+}
+
+func TestDashboardResetFilter(t *testing.T) {
+	m := NewDashboard(t.Context(), nil)
+	period, err := storage.CurrentPeriod(
+		storage.Week,
+		time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.filter.ProjectID = 7
+	m.filter.Period = period
+
+	updated, cmd := m.Update(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune{'F'},
+	})
+	if cmd == nil {
+		t.Fatal("reset did not refresh tasks")
+	}
+	if updated.filter.ProjectID != allProjectsFilter ||
+		updated.filter.Period.Kind != storage.All {
+		t.Fatalf("filter was not reset: %#v", updated.filter)
+	}
+}
+
 func TestDashboardResumedTaskTotals(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	previousEnd := now.Add(-30 * time.Minute)
@@ -155,14 +296,14 @@ func TestDashboardRowAt(t *testing.T) {
 	m.refreshTables()
 
 	t.Run("active entry", func(t *testing.T) {
-		kind, index := m.rowAt(2)
+		kind, index := m.rowAt(4)
 		if kind != dashboardActiveRow || index != 0 {
 			t.Fatalf("got (%d, %d), want active row 0", kind, index)
 		}
 	})
 
 	t.Run("available task", func(t *testing.T) {
-		kind, index := m.rowAt(7)
+		kind, index := m.rowAt(9)
 		if kind != dashboardTaskRow || index != 0 {
 			t.Fatalf("got (%d, %d), want task row 0", kind, index)
 		}
