@@ -41,7 +41,7 @@ func TestDashboardFillsContentHeight(t *testing.T) {
 	}
 	if got := lines[len(lines)-1]; got !=
 		"[/] search  [n] new & track  [a] add past task  [enter] details  "+
-			"[e] edit task  [x/delete] delete  [space] start/pause  "+
+			"[e] edit task  [x/delete] archive  [space] start/pause  "+
 			"[f] filters  [F] reset filters  "+
 			"[shift+up/down or K/J] period  "+
 			"[shift+left/right or H/L] move" {

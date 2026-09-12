@@ -199,7 +199,7 @@ func TestTaskEntriesCaptureProjectRateChanges(t *testing.T) {
 	}
 }
 
-func TestTaskRateOverrideAndProjectChangesAffectFutureEntries(t *testing.T) {
+func TestTaskProjectMovesPreserveHistoricalRates(t *testing.T) {
 	stor := fixtureStorage(t)
 	ctx := t.Context()
 	firstProject := fixtureProject(t, stor)
@@ -272,7 +272,7 @@ func TestTaskRateOverrideAndProjectChangesAffectFutureEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantProjects := []int{firstProject.ID, projects[1].ID, projects[1].ID}
+	wantProjects := []int{projects[1].ID, projects[1].ID, projects[1].ID}
 	wantRates := []int{firstProject.RateID, overrideRateID, rates[1].ID}
 	if len(entries) != len(wantRates) {
 		t.Fatalf("got %d entries, want %d", len(entries), len(wantRates))
@@ -442,7 +442,7 @@ func TestGetTask(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(entries) != 1 || entries[0].TaskID != nil ||
+		if len(entries) != 1 || entries[0].TaskID == nil || *entries[0].TaskID != 1 ||
 			entries[0].ProjectID == nil || *entries[0].ProjectID != project.ID ||
 			entries[0].RateID == nil || *entries[0].RateID != project.RateID {
 			t.Fatalf("task deletion lost accounting history: %#v", entries)

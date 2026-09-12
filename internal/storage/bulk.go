@@ -40,6 +40,22 @@ func (s *Storage) bulkAssign(
 	if count != len(ids) {
 		return fmt.Errorf("found %d of %d requested %s records", count, len(ids), entity)
 	}
+	if entity == "ENTRY" && column == "PROJECT_ID" {
+		query, args, err := sqlx.In(
+			`SELECT count(*) FROM ENTRY WHERE TASK_ID IS NOT NULL AND ID IN (?)`,
+			ids,
+		)
+		if err != nil {
+			return fmt.Errorf("build attached entry count: %w", err)
+		}
+		var attached int
+		if err := tx.GetContext(ctx, &attached, query, args...); err != nil {
+			return fmt.Errorf("count attached entries: %w", err)
+		}
+		if attached != 0 {
+			return fmt.Errorf("attached entries inherit their task's project; move the task instead")
+		}
+	}
 
 	updateQuery, updateArgs, err := sqlx.In(
 		fmt.Sprintf(`UPDATE %s SET %s = ? WHERE ID IN (?)`, entity, column),

@@ -23,6 +23,8 @@ func (r runner) runTasks(args []string) error {
 		return r.updateTask(args[1:])
 	case "delete":
 		return r.deleteTask(args[1:])
+	case "restore":
+		return r.restoreTask(args[1:])
 	case "start":
 		return r.startTask(args[1:])
 	case "stop":
@@ -36,7 +38,7 @@ func (r runner) runTasks(args []string) error {
 }
 
 func (r runner) loadTasks() ([]storage.TaskSummary, error) {
-	tasks, err := r.stor.GetTasks(r.ctx)
+	tasks, err := r.stor.GetTasksIncludingArchived(r.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +60,7 @@ func (r runner) loadTasks() ([]storage.TaskSummary, error) {
 func (r runner) listTasks(args []string) error {
 	flags := r.flags("tasks", "list")
 	activeOnly := flags.Bool("active", false, "show only actively tracked tasks")
+	includeArchived := flags.Bool("archived", false, "include archived tasks")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -77,21 +80,24 @@ func (r runner) listTasks(args []string) error {
 		}
 		items = filtered
 	}
+	if !*includeArchived {
+		filtered := items[:0]
+		for _, item := range items {
+			if !item.Archived {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
 	output := taskOutputs(items)
 	if r.json {
 		return r.writeJSON(output)
 	}
 	rows := make([]string, len(output))
 	for i, item := range output {
-		rows[i] = fmt.Sprintf("%d\t%s\t%d\t%s\t%d\t%s\t%d\t%s\t%t\t%t\t%s\t%s", item.ID,
-			item.Name, item.ProjectID, item.ProjectName, item.RateID, item.RateName,
-			item.RateAmountMinor, item.RateCurrency, item.RateOverridden, item.Active,
-			formatTracked(item.TrackedSeconds), formatMinorMap(item.EarnedMinor))
+		rows[i] = taskTableRow(item)
 	}
-	return r.table(
-		"ID\tNAME\tPROJECT_ID\tPROJECT\tRATE_ID\tRATE\tRATE_AMOUNT_MINOR\tRATE_CURRENCY\tRATE_OVERRIDDEN\tACTIVE\tTRACKED\tEARNED_MINOR",
-		rows,
-	)
+	return r.table(taskTableHeader, rows)
 }
 
 func (r runner) getTask(args []string) error {
@@ -112,17 +118,26 @@ func (r runner) getTask(args []string) error {
 			if r.json {
 				return r.writeJSON(output)
 			}
-			return r.table(
-				"ID\tNAME\tPROJECT_ID\tPROJECT\tRATE_ID\tRATE\tRATE_AMOUNT_MINOR\tRATE_CURRENCY\tRATE_OVERRIDDEN\tACTIVE\tTRACKED\tEARNED_MINOR",
-				[]string{fmt.Sprintf("%d\t%s\t%d\t%s\t%d\t%s\t%d\t%s\t%t\t%t\t%s\t%s", output.ID,
-					output.Name, output.ProjectID, output.ProjectName, output.RateID,
-					output.RateName, output.RateAmountMinor, output.RateCurrency,
-					output.RateOverridden, output.Active, formatTracked(output.TrackedSeconds),
-					formatMinorMap(output.EarnedMinor))},
-			)
+			return r.table(taskTableHeader, []string{taskTableRow(output)})
 		}
 	}
 	return fmt.Errorf("task %d not found", id)
+}
+
+const taskTableHeader = "ID\tNAME\tPROJECT_ID\tPROJECT\tNEXT_RATE_ID\tNEXT_RATE\t" +
+	"NEXT_RATE_AMOUNT_MINOR\tNEXT_RATE_CURRENCY\tRATE_OVERRIDDEN\tACTIVE\t" +
+	"TRACKED\tEARNED_MINOR\tUSED_RATES_MINOR_PER_HOUR\tARCHIVED"
+
+func taskTableRow(item taskOutput) string {
+	used := make([]string, len(item.HistoricalRates))
+	for i, rate := range item.HistoricalRates {
+		used[i] = fmt.Sprintf("%d:%s:%d", rate.ID, rate.Currency, rate.AmountMinor)
+	}
+	return fmt.Sprintf("%d\t%s\t%d\t%s\t%d\t%s\t%d\t%s\t%t\t%t\t%s\t%s\t%s\t%t", item.ID,
+		item.Name, item.ProjectID, item.ProjectName, item.RateID, item.RateName,
+		item.RateAmountMinor, item.RateCurrency, item.RateOverridden, item.Active,
+		formatTracked(item.TrackedSeconds), formatMinorMap(item.EarnedMinor),
+		strings.Join(used, ","), item.Archived)
 }
 
 func (r runner) createTask(args []string) error {
@@ -243,7 +258,21 @@ func (r runner) deleteTask(args []string) error {
 	if err := r.stor.DeleteTask(r.ctx, id); err != nil {
 		return err
 	}
-	return r.status("deleted", "task", id)
+	return r.status("archived", "task", id)
+}
+
+func (r runner) restoreTask(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: chankat tasks restore ID")
+	}
+	id, err := parseID(args[0], "task")
+	if err != nil {
+		return err
+	}
+	if err := r.stor.RestoreTask(r.ctx, id); err != nil {
+		return err
+	}
+	return r.status("restored", "task", id)
 }
 
 func (r runner) startTask(args []string) error {

@@ -93,7 +93,7 @@ func (r runner) runDashboard(args []string) error {
 		}
 		projects = []storage.Project{project}
 	}
-	tasks, err := r.stor.GetTasks(r.ctx)
+	tasks, err := r.stor.GetTasksIncludingArchived(r.ctx)
 	if err != nil {
 		return fmt.Errorf("load dashboard tasks: %w", err)
 	}

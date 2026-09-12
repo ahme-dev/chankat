@@ -23,6 +23,8 @@ type projectItem struct {
 	project storage.Project
 	rate    storage.Rate
 	balance map[string]int64
+	earned  map[string]int64
+	paid    map[string]int64
 	tracked time.Duration
 }
 
@@ -41,6 +43,12 @@ func (p projectItem) Description() string {
 		balances[i] = components.FormatBalance(p.balance[currency], currency)
 	}
 	parts := make([]string, 0, 4)
+	for _, currency := range dashboardCurrencies(p.earned, p.paid, p.balance) {
+		parts = append(parts,
+			components.FormatMoney(p.earned[currency], currency)+" earned",
+			components.FormatMoney(p.paid[currency], currency)+" paid",
+		)
+	}
 	if len(balances) > 0 {
 		parts = append(parts, strings.Join(balances, ", "))
 	}
@@ -48,7 +56,7 @@ func (p projectItem) Description() string {
 		parts,
 		components.FormatDuration(p.tracked)+" tracked",
 		fmt.Sprintf(
-			"%s Rate · %s/h",
+			"Current rate: %s · %s/h",
 			p.rate.Name,
 			components.FormatMoney(int64(p.rate.AmountMinor), p.rate.Currency),
 		),
@@ -75,6 +83,8 @@ func projectItems(
 			project: summary.Project,
 			rate:    summary.Rate,
 			balance: summary.BalanceMinor,
+			earned:  summary.EarnedMinor,
+			paid:    summary.PaidMinor,
 			tracked: summary.Tracked,
 		}
 	}

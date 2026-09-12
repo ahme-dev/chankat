@@ -165,6 +165,47 @@ func TestCLITaskRateOverrideCanBeChangedAndCleared(t *testing.T) {
 	}
 }
 
+func TestCLIProjectMoveAndArchiveKeepHistoricalEarnings(t *testing.T) {
+	stor := cliStorage(t)
+	for _, args := range [][]string{
+		{"rates", "create", "--name", "Old", "--amount-minor", "10000", "--currency", "USD"},
+		{"rates", "create", "--name", "New", "--amount-minor", "20000", "--currency", "USD"},
+		{"projects", "create", "--name", "One", "--rate", "1"},
+		{"projects", "create", "--name", "Two", "--rate", "2"},
+		{"tasks", "create", "--name", "History", "--project", "1", "--started-at", "2026-01-01 09:00", "--ended-at", "2026-01-01 10:00"},
+		{"tasks", "update", "1", "--project", "2"},
+		{"payments", "create", "--project", "2", "--amount-minor", "4000", "--currency", "USD", "--paid-at", "2026-01-01"},
+		{"tasks", "delete", "1"},
+	} {
+		runCLI(t, stor, args...)
+	}
+	var projects []projectOutput
+	decodeCLI(t, stor, &projects, "--json", "projects", "list")
+	if projects[0].TrackedSeconds != 0 || projects[0].BalanceMinor["USD"] != 0 ||
+		projects[1].EarnedMinor["USD"] != 10000 || projects[1].PaidMinor["USD"] != 4000 || projects[1].BalanceMinor["USD"] != 6000 {
+		t.Fatalf("projects = %#v", projects)
+	}
+	var tasks []taskOutput
+	decodeCLI(t, stor, &tasks, "--json", "tasks", "list")
+	if len(tasks) != 0 {
+		t.Fatal("archived task visible")
+	}
+	decodeCLI(t, stor, &tasks, "--json", "tasks", "list", "--archived")
+	if len(tasks) != 1 || !tasks[0].Archived || tasks[0].RateID != 2 ||
+		len(tasks[0].HistoricalRates) != 1 || tasks[0].HistoricalRates[0].ID != 1 || tasks[0].EarnedMinor["USD"] != 10000 {
+		t.Fatalf("archived history = %#v", tasks)
+	}
+	text := runCLI(t, stor, "tasks", "get", "1")
+	if !strings.Contains(text, "NEXT_RATE") || !strings.Contains(text, "1:USD:10000") {
+		t.Fatalf("task output: %s", text)
+	}
+	runCLI(t, stor, "tasks", "restore", "1")
+	decodeCLI(t, stor, &tasks, "--json", "tasks", "list")
+	if len(tasks) != 1 || tasks[0].Archived || tasks[0].Active {
+		t.Fatalf("restored task = %#v", tasks)
+	}
+}
+
 func TestCLIStopsAllTasks(t *testing.T) {
 	stor := cliStorage(t)
 	runCLI(t, stor, "rates", "create", "--name", "Rate",

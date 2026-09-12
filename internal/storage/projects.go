@@ -95,7 +95,21 @@ func (s *Storage) UpdateProject(ctx context.Context, project Project) error {
 }
 
 func (s *Storage) DeleteProject(ctx context.Context, id int) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM PROJECT WHERE ID = $1`, id)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete project: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Empty archived tasks have no accounting history to retain.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM TASK
+		WHERE PROJECT_ID = $1 AND ARCHIVED = 1
+		  AND NOT EXISTS (SELECT 1 FROM ENTRY WHERE TASK_ID = TASK.ID)
+	`, id); err != nil {
+		return fmt.Errorf("remove empty archived tasks: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM PROJECT WHERE ID = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete project: %w", err)
 	}
@@ -105,6 +119,9 @@ func (s *Storage) DeleteProject(ctx context.Context, id int) error {
 	}
 	if deleted == 0 {
 		return fmt.Errorf("project %d not found", id)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete project: %w", err)
 	}
 	return nil
 }

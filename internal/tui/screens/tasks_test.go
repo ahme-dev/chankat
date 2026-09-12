@@ -94,6 +94,28 @@ func TestTaskItemsDisplayEffectiveRate(t *testing.T) {
 	}
 }
 
+func TestHistoricalTaskDisplaysUsedRateSeparatelyFromNextRate(t *testing.T) {
+	taskID, projectID, oldID := 1, 1, 1
+	end := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	rates := []storage.Rate{
+		{ID: oldID, Name: "Old", AmountMinor: 10000, Currency: "USD"},
+		{ID: 2, Name: "New", AmountMinor: 20000, Currency: "USD"},
+	}
+	entry := storage.Entry{TaskID: &taskID, ProjectID: &projectID, RateID: &oldID,
+		StartedAt: end.Add(-time.Hour), EndedAt: &end}
+	items := taskItems([]storage.Task{{ID: taskID, Name: "Historical", ProjectID: projectID}},
+		[]storage.Project{{ID: projectID, Name: "Client", RateID: 2}}, []storage.Entry{entry}, rates)
+	for _, want := range []string{"Used: Old $100.00/hour", "Next rate: New", "$100.00 earned"} {
+		if !strings.Contains(items[0].Description(), want) {
+			t.Fatalf("missing %q: %s", want, items[0].Description())
+		}
+	}
+	row := entryItem{entry: entry, now: end, rate: rates[0]}
+	if !strings.Contains(row.Description(), "Old $100.00/hour") {
+		t.Fatalf("entry rate = %s", row.Description())
+	}
+}
+
 func TestDashboardHistoricalEntryDoesNotBecomeLatest(t *testing.T) {
 	taskOne := 1
 	taskTwo := 2
