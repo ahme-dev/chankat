@@ -51,9 +51,6 @@ func validatePayment(payment Payment) error {
 	if payment.PaidAt.IsZero() {
 		return fmt.Errorf("paid-at date is required")
 	}
-	if payment.PaidForDate.IsZero() {
-		return fmt.Errorf("paid-for date is required")
-	}
 	return nil
 }
 

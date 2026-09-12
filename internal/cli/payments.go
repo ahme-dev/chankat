@@ -55,12 +55,12 @@ func (r runner) listPayments(args []string) error {
 	}
 	rows := make([]string, len(output))
 	for i, item := range output {
-		rows[i] = fmt.Sprintf("%d\t%d\t%s\t%d\t%s\t%s\t%s\t%s", item.ID,
+		rows[i] = fmt.Sprintf("%d\t%d\t%s\t%d\t%s\t%s\t%s", item.ID,
 			item.ProjectID, item.ProjectName, item.AmountMinor, item.Currency,
-			item.PaidAt, item.PaidForDate, item.Note)
+			item.PaidAt, item.Note)
 	}
 	return r.table(
-		"ID\tPROJECT_ID\tPROJECT\tAMOUNT_MINOR\tCURRENCY\tPAID_AT\tPAID_FOR\tNOTE",
+		"ID\tPROJECT_ID\tPROJECT\tAMOUNT_MINOR\tCURRENCY\tPAID_AT\tNOTE",
 		rows,
 	)
 }
@@ -86,10 +86,10 @@ func (r runner) getPayment(args []string) error {
 		return r.writeJSON(output)
 	}
 	return r.table(
-		"ID\tPROJECT_ID\tPROJECT\tAMOUNT_MINOR\tCURRENCY\tPAID_AT\tPAID_FOR\tNOTE",
-		[]string{fmt.Sprintf("%d\t%d\t%s\t%d\t%s\t%s\t%s\t%s", output.ID,
+		"ID\tPROJECT_ID\tPROJECT\tAMOUNT_MINOR\tCURRENCY\tPAID_AT\tNOTE",
+		[]string{fmt.Sprintf("%d\t%d\t%s\t%d\t%s\t%s\t%s", output.ID,
 			output.ProjectID, output.ProjectName, output.AmountMinor,
-			output.Currency, output.PaidAt, output.PaidForDate, output.Note)},
+			output.Currency, output.PaidAt, output.Note)},
 	)
 }
 
@@ -100,7 +100,7 @@ func (r runner) createPayment(args []string) error {
 	amount := flags.Int("amount-minor", 0, "amount in minor units")
 	currency := flags.String("currency", "", "three-letter currency code")
 	paidAt := flags.String("paid-at", today, "payment date")
-	paidFor := flags.String("paid-for", today, "date the payment covers")
+	flags.String("paid-for", "", "legacy payment date (ignored)")
 	note := flags.String("note", "", "payment note")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -115,13 +115,9 @@ func (r runner) createPayment(args []string) error {
 	if err != nil {
 		return err
 	}
-	paidForValue, err := parseDate(*paidFor)
-	if err != nil {
-		return err
-	}
 	id, err := r.stor.CreatePaymentID(r.ctx, storage.Payment{
 		ProjectID: *projectID, AmountMinor: *amount, Currency: *currency,
-		PaidAt: paidAtValue, PaidForDate: paidForValue, Note: *note,
+		PaidAt: paidAtValue, Note: *note,
 	})
 	if err != nil {
 		return err
@@ -146,8 +142,7 @@ func (r runner) updatePayment(args []string) error {
 	amount := flags.Int("amount-minor", payment.AmountMinor, "amount in minor units")
 	currency := flags.String("currency", payment.Currency, "three-letter currency code")
 	paidAt := flags.String("paid-at", payment.PaidAt.Format(dateLayout), "payment date")
-	paidFor := flags.String("paid-for", payment.PaidForDate.Format(dateLayout),
-		"date the payment covers")
+	flags.String("paid-for", "", "legacy payment date (ignored)")
 	note := flags.String("note", payment.Note, "payment note")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
@@ -162,15 +157,10 @@ func (r runner) updatePayment(args []string) error {
 	if err != nil {
 		return err
 	}
-	paidForValue, err := parseDate(*paidFor)
-	if err != nil {
-		return err
-	}
 	payment.ProjectID = *projectID
 	payment.AmountMinor = *amount
 	payment.Currency = *currency
 	payment.PaidAt = paidAtValue
-	payment.PaidForDate = paidForValue
 	payment.Note = *note
 	if err := r.stor.UpdatePayment(r.ctx, payment); err != nil {
 		return err

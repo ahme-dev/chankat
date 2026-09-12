@@ -38,11 +38,11 @@ func (p projectItem) Description() string {
 	sort.Strings(currencies)
 	balances := make([]string, len(currencies))
 	for i, currency := range currencies {
-		balances[i] = components.FormatMoney(p.balance[currency], currency)
+		balances[i] = components.FormatBalance(p.balance[currency], currency)
 	}
 	parts := make([]string, 0, 4)
 	if len(balances) > 0 {
-		parts = append(parts, strings.Join(balances, ", ")+" outstanding")
+		parts = append(parts, strings.Join(balances, ", "))
 	}
 	parts = append(
 		parts,
@@ -66,7 +66,9 @@ func projectItems(
 	entries []storage.Entry,
 	payments []storage.Payment,
 ) []projectItem {
-	summaries := storage.SummarizeProjects(projects, rates, entries, payments)
+	summaries := storage.SummarizeProjects(
+		projects, rates, entries, payments, time.Now(),
+	)
 	items := make([]projectItem, len(summaries))
 	for i, summary := range summaries {
 		items[i] = projectItem{

@@ -14,7 +14,6 @@ type Payment struct {
 	AmountMinor int
 	Currency    string
 	PaidAt      time.Time
-	PaidForDate time.Time
 	Note        string
 }
 
@@ -24,7 +23,6 @@ type paymentRow struct {
 	AmountMinor int    `db:"amount_minor"`
 	Currency    string `db:"currency"`
 	PaidAt      int64  `db:"paid_at"`
-	PaidForDate int64  `db:"paid_for_date"`
 	Note        string `db:"note"`
 }
 
@@ -35,7 +33,6 @@ const selectPayments = `
 		AMOUNT_MINOR AS amount_minor,
 		CURRENCY AS currency,
 		PAID_AT AS paid_at,
-		PAID_FOR_DATE AS paid_for_date,
 		NOTES AS note
 	FROM PAYMENT
 `
@@ -72,6 +69,10 @@ func (s *Storage) CreatePaymentID(ctx context.Context, payment Payment) (int, er
 	if err != nil {
 		return 0, fmt.Errorf("create payment: %w", err)
 	}
+	if err := s.validatePaymentCurrency(ctx, payment.ProjectID, currency); err != nil {
+		return 0, fmt.Errorf("create payment: %w", err)
+	}
+	paidAt := canonicalPaymentDate(payment.PaidAt)
 
 	const query = `
 		INSERT INTO PAYMENT (
@@ -91,8 +92,8 @@ func (s *Storage) CreatePaymentID(ctx context.Context, payment Payment) (int, er
 		payment.ProjectID,
 		payment.AmountMinor,
 		currency,
-		payment.PaidAt.Unix(),
-		payment.PaidForDate.Unix(),
+		paidAt.Unix(),
+		paidAt.Unix(),
 		strings.TrimSpace(payment.Note),
 	)
 	if err != nil {
@@ -113,6 +114,16 @@ func (s *Storage) UpdatePayment(ctx context.Context, payment Payment) error {
 	if err != nil {
 		return fmt.Errorf("update payment: %w", err)
 	}
+	existing, err := s.GetPayment(ctx, payment.ID)
+	if err != nil {
+		return fmt.Errorf("update payment: %w", err)
+	}
+	if existing.ProjectID != payment.ProjectID || existing.Currency != currency {
+		if err := s.validatePaymentCurrency(ctx, payment.ProjectID, currency); err != nil {
+			return fmt.Errorf("update payment: %w", err)
+		}
+	}
+	paidAt := canonicalPaymentDate(payment.PaidAt)
 
 	const query = `
 		UPDATE PAYMENT
@@ -132,8 +143,8 @@ func (s *Storage) UpdatePayment(ctx context.Context, payment Payment) error {
 		payment.ProjectID,
 		payment.AmountMinor,
 		currency,
-		payment.PaidAt.Unix(),
-		payment.PaidForDate.Unix(),
+		paidAt.Unix(),
+		paidAt.Unix(),
 		strings.TrimSpace(payment.Note),
 		payment.ID,
 	)
@@ -179,8 +190,60 @@ func paymentFromRow(row paymentRow) Payment {
 		ProjectID:   row.ProjectID,
 		AmountMinor: row.AmountMinor,
 		Currency:    row.Currency,
-		PaidAt:      time.Unix(row.PaidAt, 0),
-		PaidForDate: time.Unix(row.PaidForDate, 0),
+		PaidAt:      time.Unix(row.PaidAt, 0).UTC(),
 		Note:        row.Note,
 	}
+}
+
+func canonicalPaymentDate(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func paymentDateInLocation(value time.Time, location *time.Location) time.Time {
+	return time.Date(
+		value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, location,
+	)
+}
+
+func (s *Storage) validatePaymentCurrency(
+	ctx context.Context,
+	projectID int,
+	currency string,
+) error {
+	var projectExists bool
+	if err := s.db.GetContext(ctx, &projectExists, `
+		SELECT EXISTS (SELECT 1 FROM PROJECT WHERE ID = $1)
+	`, projectID); err != nil {
+		return fmt.Errorf("check payment project: %w", err)
+	}
+	if !projectExists {
+		return fmt.Errorf("project %d not found", projectID)
+	}
+
+	var allowed bool
+	if err := s.db.GetContext(ctx, &allowed, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM RATE
+			WHERE CURRENCY = $2
+			  AND (
+				ID = (SELECT RATE_ID FROM PROJECT WHERE ID = $1)
+				OR ID IN (
+					SELECT RATE_ID
+					FROM ENTRY
+					WHERE PROJECT_ID = $1 AND RATE_ID IS NOT NULL
+				)
+			  )
+		)
+	`, projectID, currency); err != nil {
+		return fmt.Errorf("check payment currency: %w", err)
+	}
+	if !allowed {
+		return fmt.Errorf(
+			"currency %s is not associated with project %d",
+			currency,
+			projectID,
+		)
+	}
+	return nil
 }

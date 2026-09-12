@@ -6,21 +6,23 @@ import (
 )
 
 type DashboardSummary struct {
-	Tracked     time.Duration
-	EarnedMinor map[string]int64
-	PaidMinor   map[string]int64
-	NetMinor    map[string]int64
-	Projects    []DashboardProjectSummary
+	Tracked      time.Duration
+	EarnedMinor  map[string]int64
+	PaidMinor    map[string]int64
+	NetMinor     map[string]int64
+	BalanceMinor map[string]int64
+	Projects     []DashboardProjectSummary
 }
 
 type DashboardProjectSummary struct {
-	ProjectID   *int
-	ProjectName string
-	Tracked     time.Duration
-	EarnedMinor map[string]int64
-	PaidMinor   map[string]int64
-	NetMinor    map[string]int64
-	Tasks       []DashboardTaskSummary
+	ProjectID    *int
+	ProjectName  string
+	Tracked      time.Duration
+	EarnedMinor  map[string]int64
+	PaidMinor    map[string]int64
+	NetMinor     map[string]int64
+	BalanceMinor map[string]int64
+	Tasks        []DashboardTaskSummary
 }
 
 type DashboardTaskSummary struct {
@@ -49,8 +51,10 @@ type dashboardProjectTotals struct {
 	tasks        map[int]*dashboardTaskTotals
 }
 
-// SummarizeDashboard reports activity in the half-open interval [start, end).
-// A zero start means there is no lower bound. Active entries stop at now.
+// SummarizeDashboard reports work and receipts in the half-open interval
+// [start, end). BalanceMinor is the current project ledger balance through now,
+// independent of the selected interval. A zero start means there is no lower
+// bound. Active entries stop at now.
 func SummarizeDashboard(
 	projects []Project,
 	tasks []Task,
@@ -71,6 +75,18 @@ func SummarizeDashboard(
 	}
 	ratesByID := RatesByID(rates)
 	totals := make(map[int]*dashboardProjectTotals)
+	periodLocation := now.Location()
+	if !start.IsZero() {
+		periodLocation = start.Location()
+	} else if !end.IsZero() {
+		periodLocation = end.Location()
+	}
+	balances := make(map[int]map[string]int64, len(projects))
+	for _, project := range SummarizeProjects(
+		projects, rates, entries, payments, now,
+	) {
+		balances[project.ID] = project.BalanceMinor
+	}
 
 	projectTotals := func(projectID int) *dashboardProjectTotals {
 		if item, ok := totals[projectID]; ok {
@@ -137,10 +153,14 @@ func SummarizeDashboard(
 	}
 
 	for _, payment := range payments {
-		if !start.IsZero() && payment.PaidForDate.Before(start) {
+		paidAt := paymentDateInLocation(payment.PaidAt, periodLocation)
+		if !now.IsZero() && paidAt.After(now) {
 			continue
 		}
-		if !end.IsZero() && !payment.PaidForDate.Before(end) {
+		if !start.IsZero() && paidAt.Before(start) {
+			continue
+		}
+		if !end.IsZero() && !paidAt.Before(end) {
 			continue
 		}
 		projectTotals(payment.ProjectID).paid[payment.Currency] +=
@@ -148,16 +168,18 @@ func SummarizeDashboard(
 	}
 
 	result := DashboardSummary{
-		EarnedMinor: make(map[string]int64),
-		PaidMinor:   make(map[string]int64),
-		NetMinor:    make(map[string]int64),
+		EarnedMinor:  make(map[string]int64),
+		PaidMinor:    make(map[string]int64),
+		NetMinor:     make(map[string]int64),
+		BalanceMinor: make(map[string]int64),
 	}
 	for projectID, totals := range totals {
 		project := DashboardProjectSummary{
-			ProjectName: totals.name,
-			Tracked:     totals.tracked,
-			EarnedMinor: minorSecondsToAmounts(totals.minorSeconds),
-			PaidMinor:   cloneAmounts(totals.paid),
+			ProjectName:  totals.name,
+			Tracked:      totals.tracked,
+			EarnedMinor:  minorSecondsToAmounts(totals.minorSeconds),
+			PaidMinor:    cloneAmounts(totals.paid),
+			BalanceMinor: cloneAmounts(balances[projectID]),
 		}
 		if projectID != 0 {
 			id := projectID
@@ -165,6 +187,11 @@ func SummarizeDashboard(
 		}
 		project.NetMinor = subtractAmounts(project.EarnedMinor, project.PaidMinor)
 
+		taskMinorSeconds := make(map[int]map[string]int64, len(totals.tasks))
+		for taskID, taskTotals := range totals.tasks {
+			taskMinorSeconds[taskID] = taskTotals.minorSeconds
+		}
+		taskAmounts := groupedMinorSecondsToAmounts(taskMinorSeconds)
 		for taskID, totals := range totals.tasks {
 			taskName := taskNames[taskID]
 			if taskID == 0 {
@@ -174,7 +201,7 @@ func SummarizeDashboard(
 			}
 			task := DashboardTaskSummary{
 				TaskName: taskName, Tracked: totals.tracked,
-				EarnedMinor: minorSecondsToAmounts(totals.minorSeconds),
+				EarnedMinor: taskAmounts[taskID],
 			}
 			if taskID != 0 {
 				id := taskID
@@ -195,6 +222,9 @@ func SummarizeDashboard(
 		result.Projects = append(result.Projects, project)
 	}
 	result.NetMinor = subtractAmounts(result.EarnedMinor, result.PaidMinor)
+	for _, balance := range balances {
+		addAmounts(result.BalanceMinor, balance)
+	}
 	sort.Slice(result.Projects, func(i, j int) bool {
 		if result.Projects[i].Tracked != result.Projects[j].Tracked {
 			return result.Projects[i].Tracked > result.Projects[j].Tracked

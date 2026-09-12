@@ -66,6 +66,9 @@ func (i statsProjectItem) Description() string {
 	if amounts := formatStatsAmounts(i.project.PaidMinor); amounts != "" {
 		description += " · " + amounts + " paid"
 	}
+	if amounts := formatStatsBalances(i.project.BalanceMinor); amounts != "" {
+		description += " · current " + amounts
+	}
 	return description
 }
 func (i statsProjectItem) FilterValue() string { return i.project.ProjectName }
@@ -217,11 +220,13 @@ func (m Stats) headerView() string {
 	b.WriteString(" tracked")
 	for _, currency := range dashboardCurrencies(
 		m.summary.EarnedMinor, m.summary.PaidMinor, m.summary.NetMinor,
+		m.summary.BalanceMinor,
 	) {
-		fmt.Fprintf(&b, "\n%s earned · %s paid · %s net",
+		fmt.Fprintf(&b, "\n%s earned · %s paid · %s net · current %s",
 			components.FormatMoney(m.summary.EarnedMinor[currency], currency),
 			components.FormatMoney(m.summary.PaidMinor[currency], currency),
-			components.FormatMoney(m.summary.NetMinor[currency], currency))
+			components.FormatMoney(m.summary.NetMinor[currency], currency),
+			components.FormatBalance(m.summary.BalanceMinor[currency], currency))
 	}
 	if chart := m.timelineChartView(lipgloss.Height(b.String())); chart != "" {
 		b.WriteString("\n\nTracked over time by project (hours)\n" + chart)
@@ -559,6 +564,15 @@ func formatStatsAmounts(amounts map[string]int64) string {
 	parts := make([]string, len(currencies))
 	for i, currency := range currencies {
 		parts[i] = components.FormatMoney(amounts[currency], currency)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatStatsBalances(amounts map[string]int64) string {
+	currencies := storage.SortedCurrencies(amounts)
+	parts := make([]string, len(currencies))
+	for i, currency := range currencies {
+		parts[i] = components.FormatBalance(amounts[currency], currency)
 	}
 	return strings.Join(parts, ", ")
 }

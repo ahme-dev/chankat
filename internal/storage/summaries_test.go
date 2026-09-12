@@ -39,10 +39,10 @@ func TestSummaries(t *testing.T) {
 	}
 
 	projects := storage.SummarizeProjects(
-		[]storage.Project{project}, []storage.Rate{rate}, entries, payments,
+		[]storage.Project{project}, []storage.Rate{rate}, entries, payments, now,
 	)
-	if projects[0].Tracked != 90*time.Minute ||
-		projects[0].BalanceMinor["USD"] != 10_000 {
+	if projects[0].Tracked != 2*time.Hour ||
+		projects[0].BalanceMinor["USD"] != 15_000 {
 		t.Fatalf("got project summary %#v", projects[0])
 	}
 
@@ -58,5 +58,28 @@ func TestSummaries(t *testing.T) {
 		tasks[0].EarnedMinor["USD"] != 20_000 ||
 		tasks[0].LastEntryID != 1 {
 		t.Fatalf("got task summary %#v", tasks[0])
+	}
+}
+
+func TestProjectBalanceCarriesPrepaymentForward(t *testing.T) {
+	projectID, rateID := 1, 1
+	startedAt := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	endedAt := startedAt.Add(time.Hour)
+	paidAt := endedAt.AddDate(0, 0, 30)
+	summaries := storage.SummarizeProjects(
+		[]storage.Project{{ID: projectID, RateID: rateID}},
+		[]storage.Rate{{ID: rateID, AmountMinor: 10_000, Currency: "USD"}},
+		[]storage.Entry{{
+			ProjectID: &projectID, RateID: &rateID,
+			StartedAt: startedAt, EndedAt: &endedAt,
+		}},
+		[]storage.Payment{{
+			ProjectID: projectID, AmountMinor: 15_000,
+			Currency: "USD", PaidAt: paidAt,
+		}},
+		paidAt,
+	)
+	if got := summaries[0].BalanceMinor["USD"]; got != -5_000 {
+		t.Fatalf("balance = %d, want 5000 credit", got)
 	}
 }

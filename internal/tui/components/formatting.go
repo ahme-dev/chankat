@@ -60,6 +60,13 @@ func FormatMoney(amountMinor int64, currency string) string {
 	return amount + " " + code
 }
 
+func FormatBalance(amountMinor int64, currency string) string {
+	if amountMinor < 0 {
+		return FormatMoney(-amountMinor, currency) + " credit"
+	}
+	return FormatMoney(amountMinor, currency) + " outstanding"
+}
+
 func groupMoneyDigits(amount string) string {
 	offset := 0
 	if strings.HasPrefix(amount, "-") {

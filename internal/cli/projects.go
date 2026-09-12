@@ -46,7 +46,9 @@ func (r runner) loadProjects() ([]storage.ProjectSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	return storage.SummarizeProjects(projects, rates, entries, payments), nil
+	return storage.SummarizeProjects(
+		projects, rates, entries, payments, r.now(),
+	), nil
 }
 
 func (r runner) listProjects(args []string) error {

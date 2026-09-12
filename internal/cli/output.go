@@ -54,7 +54,6 @@ type paymentOutput struct {
 	AmountMinor int    `json:"amount_minor"`
 	Currency    string `json:"currency"`
 	PaidAt      string `json:"paid_at"`
-	PaidForDate string `json:"paid_for_date"`
 	Note        string `json:"note"`
 }
 
@@ -171,9 +170,7 @@ func paymentOutputs(
 			ID: payment.ID, ProjectID: payment.ProjectID,
 			ProjectName: projectNames[payment.ProjectID],
 			AmountMinor: payment.AmountMinor, Currency: payment.Currency,
-			PaidAt:      payment.PaidAt.Format("2006-01-02"),
-			PaidForDate: payment.PaidForDate.Format("2006-01-02"),
-			Note:        payment.Note,
+			PaidAt: payment.PaidAt.Format("2006-01-02"), Note: payment.Note,
 		}
 	}
 	return result

@@ -114,6 +114,62 @@ func TestStartTask(t *testing.T) {
 	}
 }
 
+func TestTaskEntriesCaptureProjectRateChanges(t *testing.T) {
+	stor := fixtureStorage(t)
+	ctx := t.Context()
+	project := fixtureProject(t, stor)
+	if err := stor.CreateTask(ctx, storage.Task{
+		Name: "tracked task", ProjectID: project.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Unix(1_700_000_000, 0)
+	if err := stor.StartTask(ctx, 1, startedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.PauseTask(ctx, 1, startedAt.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := stor.CreateRate(ctx, storage.Rate{
+		Name: "increased", AmountMinor: 10_000, Currency: "USD",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rates, err := stor.GetRates(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRateID := rates[len(rates)-1].ID
+	project.RateID = newRateID
+	if err := stor.UpdateProject(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.StartTask(ctx, 1, startedAt.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.PauseTask(ctx, 1, startedAt.Add(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := stor.GetEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[0].RateID == nil ||
+		*entries[0].RateID != rates[0].ID || entries[1].RateID == nil ||
+		*entries[1].RateID != newRateID {
+		t.Fatalf("entries did not preserve rate history: %#v", entries)
+	}
+	summaries := storage.SummarizeProjects(
+		[]storage.Project{project}, rates, entries, nil,
+		startedAt.Add(3*time.Hour),
+	)
+	if got := summaries[0].BalanceMinor["USD"]; got != 17_500 {
+		t.Fatalf("historical-rate earnings = %d, want 17500", got)
+	}
+}
+
 func TestPauseTask(t *testing.T) {
 	stor := fixtureStorage(t)
 	ctx := t.Context()
@@ -246,6 +302,35 @@ func TestGetTask(t *testing.T) {
 		}
 		if task.Name != "task" {
 			t.Fatalf("got task %#v", task)
+		}
+	})
+
+	t.Run("preserves time entries", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		project := fixtureProject(t, stor)
+		if err := stor.CreateTask(t.Context(), storage.Task{
+			Name: "task", ProjectID: project.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		startedAt := time.Unix(1_700_000_000, 0)
+		endedAt := startedAt.Add(time.Hour)
+		if err := stor.CreateEntryForTask(
+			t.Context(), 1, startedAt, &endedAt, "work",
+		); err != nil {
+			t.Fatal(err)
+		}
+		if err := stor.DeleteTask(t.Context(), 1); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := stor.GetEntries(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 || entries[0].TaskID != nil ||
+			entries[0].ProjectID == nil || *entries[0].ProjectID != project.ID ||
+			entries[0].RateID == nil || *entries[0].RateID != project.RateID {
+			t.Fatalf("task deletion lost accounting history: %#v", entries)
 		}
 	})
 

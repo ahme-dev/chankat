@@ -44,6 +44,7 @@ func SummarizeProjects(
 	rates []Rate,
 	entries []Entry,
 	payments []Payment,
+	now time.Time,
 ) []ProjectSummary {
 	ratesByID := RatesByID(rates)
 	balances := make(map[int]map[string]int64, len(projects))
@@ -57,7 +58,7 @@ func SummarizeProjects(
 		minorSeconds[project.ID] = make(map[string]int64)
 	}
 	for _, entry := range entries {
-		if entry.ProjectID == nil || entry.RateID == nil || entry.EndedAt == nil {
+		if entry.ProjectID == nil || entry.RateID == nil {
 			continue
 		}
 		rate, rateOK := ratesByID[*entry.RateID]
@@ -65,7 +66,14 @@ func SummarizeProjects(
 		if !rateOK || !projectOK {
 			continue
 		}
-		elapsed := nonNegativeDuration(entry.StartedAt, *entry.EndedAt)
+		endedAt := now
+		if entry.EndedAt != nil && (endedAt.IsZero() || entry.EndedAt.Before(endedAt)) {
+			endedAt = *entry.EndedAt
+		}
+		if endedAt.IsZero() {
+			continue
+		}
+		elapsed := nonNegativeDuration(entry.StartedAt, endedAt)
 		tracked[*entry.ProjectID] += elapsed
 		minorSeconds[*entry.ProjectID][rate.Currency] +=
 			int64(rate.AmountMinor) * int64(elapsed/time.Second)
@@ -76,6 +84,13 @@ func SummarizeProjects(
 		}
 	}
 	for _, payment := range payments {
+		paidAt := payment.PaidAt
+		if !now.IsZero() {
+			paidAt = paymentDateInLocation(payment.PaidAt, now.Location())
+		}
+		if !now.IsZero() && paidAt.After(now) {
+			continue
+		}
 		if balances[payment.ProjectID] != nil {
 			balances[payment.ProjectID][payment.Currency] -= int64(payment.AmountMinor)
 		}
@@ -187,6 +202,50 @@ func SortedCurrencies(amounts map[string]int64) []string {
 		result = append(result, currency)
 	}
 	sort.Strings(result)
+	return result
+}
+
+// groupedMinorSecondsToAmounts distributes a group's fractional remainders so
+// its children add up to the amount calculated at the parent boundary.
+func groupedMinorSecondsToAmounts(
+	values map[int]map[string]int64,
+) map[int]map[string]int64 {
+	result := make(map[int]map[string]int64, len(values))
+	currencies := make(map[string]bool)
+	for id, amounts := range values {
+		result[id] = make(map[string]int64)
+		for currency := range amounts {
+			currencies[currency] = true
+		}
+	}
+	type remainder struct {
+		id    int
+		value int64
+	}
+	for currency := range currencies {
+		var total, roundedGroups int64
+		remainders := make([]remainder, 0, len(values))
+		for id, amounts := range values {
+			value, present := amounts[currency]
+			rounded := value / 3600
+			if present {
+				result[id][currency] = rounded
+			}
+			total += value
+			roundedGroups += rounded
+			remainders = append(remainders, remainder{id: id, value: value % 3600})
+		}
+		sort.Slice(remainders, func(i, j int) bool {
+			if remainders[i].value != remainders[j].value {
+				return remainders[i].value > remainders[j].value
+			}
+			return remainders[i].id < remainders[j].id
+		})
+		extra := total/3600 - roundedGroups
+		for i := int64(0); i < extra; i++ {
+			result[remainders[i].id][currency]++
+		}
+	}
 	return result
 }
 

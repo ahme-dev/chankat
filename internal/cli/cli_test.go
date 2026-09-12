@@ -61,8 +61,9 @@ func TestCLIResourceWorkflow(t *testing.T) {
 		"--ended-at", "2026-07-30T12:00:00Z", "--note", "second pass")
 	runCLI(t, stor, "payments", "create", "--project", "1",
 		"--amount-minor", "5000", "--currency", "usd",
-		"--paid-at", "2026-07-30", "--paid-for", "2026-07-01")
-	runCLI(t, stor, "payments", "update", "1", "--note", "deposit")
+		"--paid-at", "2026-07-30", "--paid-for", "2026-06-01")
+	runCLI(t, stor, "payments", "update", "1", "--note", "deposit",
+		"--paid-for", "discarded-value")
 
 	var rate rateOutput
 	decodeCLI(t, stor, &rate, "--json", "rates", "get", "1")
@@ -103,7 +104,8 @@ func TestCLIResourceWorkflow(t *testing.T) {
 
 	var payment paymentOutput
 	decodeCLI(t, stor, &payment, "--json", "payments", "get", "1")
-	if payment.ProjectName != "Acme Corp" || payment.Note != "deposit" {
+	if payment.ProjectName != "Acme Corp" || payment.Note != "deposit" ||
+		payment.PaidAt != "2026-07-30" {
 		t.Fatalf("unexpected payment: %#v", payment)
 	}
 
@@ -177,21 +179,22 @@ func TestCLIDashboardCustomPeriod(t *testing.T) {
 		"--amount-minor", "10000", "--currency", "USD")
 	runCLI(t, stor, "projects", "create", "--name", "Acme", "--rate", "1")
 	runCLI(t, stor, "tasks", "create", "--name", "Build", "--project", "1",
-		"--started-at", "2026-08-02T23:00:00Z",
-		"--ended-at", "2026-08-03T01:00:00Z")
+		"--started-at", "2026-08-02 23:00",
+		"--ended-at", "2026-08-03 01:00")
 	runCLI(t, stor, "payments", "create", "--project", "1",
-		"--amount-minor", "5000", "--currency", "USD",
-		"--paid-at", "2026-08-09", "--paid-for", "2026-08-03")
+		"--amount-minor", "20000", "--currency", "USD",
+		"--paid-at", "2026-08-09")
 
-	output := runCLIAt(t, stor, time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC),
+	output := runCLIAt(t, stor, time.Date(2026, 8, 9, 12, 0, 0, 0, time.Local),
 		"--json", "dashboard", "--from", "2026-08-03", "--to", "2026-08-03")
 	var got dashboardOutput
 	if err := json.Unmarshal([]byte(output), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.Period != "custom" || got.TrackedSeconds != 3600 ||
-		got.EarnedMinor["USD"] != 10_000 || got.PaidMinor["USD"] != 5_000 ||
-		len(got.Projects) != 1 {
+		got.EarnedMinor["USD"] != 10_000 || got.PaidMinor["USD"] != 0 ||
+		got.BalanceMinor["USD"] != 0 || len(got.Projects) != 1 ||
+		got.Projects[0].BalanceMinor["USD"] != 0 {
 		t.Fatalf("dashboard = %#v", got)
 	}
 }
