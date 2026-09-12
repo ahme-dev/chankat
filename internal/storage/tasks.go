@@ -12,11 +12,13 @@ type Task struct {
 	ID        int    `db:"id"`
 	Name      string `db:"name"`
 	ProjectID int    `db:"project_id"`
+	RateID    *int   `db:"rate_id"`
 }
 
 func (s *Storage) GetTasks(ctx context.Context) ([]Task, error) {
 	const query = `
-		SELECT ID AS id, NAME AS name, PROJECT_ID AS project_id
+		SELECT ID AS id, NAME AS name, PROJECT_ID AS project_id,
+			RATE_ID AS rate_id
 		FROM TASK
 		ORDER BY ID
 	`
@@ -30,7 +32,8 @@ func (s *Storage) GetTasks(ctx context.Context) ([]Task, error) {
 
 func (s *Storage) GetTask(ctx context.Context, id int) (Task, error) {
 	const query = `
-		SELECT ID AS id, NAME AS name, PROJECT_ID AS project_id
+		SELECT ID AS id, NAME AS name, PROJECT_ID AS project_id,
+			RATE_ID AS rate_id
 		FROM TASK
 		WHERE ID = $1
 	`
@@ -56,11 +59,11 @@ func (s *Storage) CreateTaskID(ctx context.Context, task Task) (int, error) {
 		return 0, fmt.Errorf("create task: %w", err)
 	}
 	const query = `
-		INSERT INTO TASK (NAME, PROJECT_ID)
-		VALUES ($1, $2)
+		INSERT INTO TASK (NAME, PROJECT_ID, RATE_ID)
+		VALUES ($1, $2, $3)
 	`
 
-	result, err := s.db.ExecContext(ctx, query, name, task.ProjectID)
+	result, err := s.db.ExecContext(ctx, query, name, task.ProjectID, task.RateID)
 	if err != nil {
 		return 0, fmt.Errorf("create task: %w", err)
 	}
@@ -107,10 +110,10 @@ func (s *Storage) CreateTaskAndEntryID(
 	}
 	defer tx.Rollback()
 
-	var rateID int
+	var projectRateID int
 	if err := tx.GetContext(
 		ctx,
-		&rateID,
+		&projectRateID,
 		`SELECT RATE_ID FROM PROJECT WHERE ID = $1`,
 		task.ProjectID,
 	); err != nil {
@@ -119,12 +122,17 @@ func (s *Storage) CreateTaskAndEntryID(
 		}
 		return 0, fmt.Errorf("get project rate: %w", err)
 	}
+	rateID := projectRateID
+	if task.RateID != nil {
+		rateID = *task.RateID
+	}
 
 	result, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO TASK (NAME, PROJECT_ID) VALUES ($1, $2)`,
+		`INSERT INTO TASK (NAME, PROJECT_ID, RATE_ID) VALUES ($1, $2, $3)`,
 		name,
 		task.ProjectID,
+		task.RateID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("create task: %w", err)
@@ -188,7 +196,8 @@ func (s *Storage) CreateEntryForTaskID(
 		RateID    int `db:"rate_id"`
 	}
 	if err := tx.GetContext(ctx, &task, `
-		SELECT TASK.PROJECT_ID AS project_id, PROJECT.RATE_ID AS rate_id
+		SELECT TASK.PROJECT_ID AS project_id,
+			COALESCE(TASK.RATE_ID, PROJECT.RATE_ID) AS rate_id
 		FROM TASK
 		JOIN PROJECT ON PROJECT.ID = TASK.PROJECT_ID
 		WHERE TASK.ID = $1
@@ -298,11 +307,13 @@ func (s *Storage) UpdateTask(ctx context.Context, task Task) error {
 	}
 	const query = `
 		UPDATE TASK
-		SET NAME = $1, PROJECT_ID = $2
-		WHERE ID = $3
+		SET NAME = $1, PROJECT_ID = $2, RATE_ID = $3
+		WHERE ID = $4
 	`
 
-	result, err := s.db.ExecContext(ctx, query, name, task.ProjectID, task.ID)
+	result, err := s.db.ExecContext(
+		ctx, query, name, task.ProjectID, task.RateID, task.ID,
+	)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}

@@ -27,14 +27,19 @@ type projectOutput struct {
 }
 
 type taskOutput struct {
-	ID             int              `json:"id"`
-	Name           string           `json:"name"`
-	ProjectID      int              `json:"project_id"`
-	ProjectName    string           `json:"project_name"`
-	Active         bool             `json:"active"`
-	LastEndedAt    *string          `json:"last_ended_at"`
-	TrackedSeconds int64            `json:"tracked_seconds"`
-	EarnedMinor    map[string]int64 `json:"earned_minor"`
+	ID              int              `json:"id"`
+	Name            string           `json:"name"`
+	ProjectID       int              `json:"project_id"`
+	ProjectName     string           `json:"project_name"`
+	RateID          int              `json:"rate_id"`
+	RateName        string           `json:"rate_name"`
+	RateAmountMinor int              `json:"rate_amount_minor"`
+	RateCurrency    string           `json:"rate_currency"`
+	RateOverridden  bool             `json:"rate_overridden"`
+	Active          bool             `json:"active"`
+	LastEndedAt     *string          `json:"last_ended_at"`
+	TrackedSeconds  int64            `json:"tracked_seconds"`
+	EarnedMinor     map[string]int64 `json:"earned_minor"`
 }
 
 type entryOutput struct {
@@ -130,7 +135,10 @@ func taskOutputs(items []storage.TaskSummary) []taskOutput {
 		}
 		result[i] = taskOutput{
 			ID: item.ID, Name: item.Name, ProjectID: item.ProjectID,
-			ProjectName: item.Project.Name, Active: item.Active,
+			ProjectName: item.Project.Name, RateID: item.Rate.ID,
+			RateName: item.Rate.Name, RateAmountMinor: item.Rate.AmountMinor,
+			RateCurrency: item.Rate.Currency, RateOverridden: item.RateOverridden,
+			Active:         item.Active,
 			LastEndedAt:    lastEndedAt,
 			TrackedSeconds: int64(item.Tracked / time.Second),
 			EarnedMinor:    item.EarnedMinor,

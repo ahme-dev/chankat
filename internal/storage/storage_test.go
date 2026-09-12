@@ -19,6 +19,8 @@ func TestMigrationBackfillsLegacyPaymentDate(t *testing.T) {
 	legacyPaidAt := time.Date(2024, 2, 1, 0, 0, 0, 0, time.Local).Unix()
 	paidAt := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC).Unix()
 	if _, err := db.Exec(`
+		CREATE TABLE RATE (ID INTEGER PRIMARY KEY);
+		CREATE TABLE TASK (ID INTEGER PRIMARY KEY);
 		CREATE TABLE PAYMENT (
 			ID INTEGER PRIMARY KEY,
 			PROJECT_ID INTEGER NOT NULL,
@@ -71,6 +73,8 @@ func TestMigrationReplacesExistingPaymentAccountingDate(t *testing.T) {
 	legacyPaidAt := time.Date(2024, 2, 1, 0, 0, 0, 0, time.Local).Unix()
 	paidAt := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC).Unix()
 	if _, err := db.Exec(`
+		CREATE TABLE RATE (ID INTEGER PRIMARY KEY);
+		CREATE TABLE TASK (ID INTEGER PRIMARY KEY);
 		CREATE TABLE PAYMENT (
 			ID INTEGER PRIMARY KEY,
 			PROJECT_ID INTEGER NOT NULL,
@@ -109,6 +113,47 @@ func TestMigrationReplacesExistingPaymentAccountingDate(t *testing.T) {
 	}
 	if got != paidAt {
 		t.Fatalf("migrated compatibility date = %d, want %d", got, paidAt)
+	}
+}
+
+func TestMigrationAddsNullableTaskRate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "version-three.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE RATE (ID INTEGER PRIMARY KEY);
+		CREATE TABLE TASK (
+			ID INTEGER PRIMARY KEY,
+			NAME TEXT NOT NULL,
+			PROJECT_ID INTEGER NOT NULL
+		);
+		INSERT INTO TASK (ID, NAME, PROJECT_ID) VALUES (1, 'existing', 7);
+		PRAGMA user_version = 3;
+	`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CHANKAT_DATA_PATH", path)
+	stor, err := storage.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stor.Close() })
+	if err := stor.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	task, err := stor.GetTask(t.Context(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Name != "existing" || task.ProjectID != 7 || task.RateID != nil {
+		t.Fatalf("migrated task = %#v", task)
 	}
 }
 
@@ -158,6 +203,19 @@ func TestOpenAndMigrate(t *testing.T) {
 	}
 	if paidForColumn != 1 {
 		t.Fatalf("got %d PAID_FOR_DATE columns, want 1", paidForColumn)
+	}
+
+	var taskRateColumn int
+	err = stor.QueryRow(`
+		SELECT count(*)
+		FROM pragma_table_info('TASK')
+		WHERE name = 'RATE_ID'
+	`).Scan(&taskRateColumn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taskRateColumn != 1 {
+		t.Fatalf("got %d TASK.RATE_ID columns, want 1", taskRateColumn)
 	}
 
 	var taskProjectRequired int

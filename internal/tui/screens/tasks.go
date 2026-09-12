@@ -466,9 +466,23 @@ func (m *Dashboard) refreshTables() {
 			}
 			description := []string{
 				m.entryProject(entry),
-				"session " + components.FormatDuration(session),
-				"total " + components.FormatDuration(duration),
 			}
+			if entry.RateID != nil {
+				if rate, ok := m.rates[*entry.RateID]; ok {
+					description = append(description, fmt.Sprintf(
+						"%s · %s/hour",
+						rate.Name,
+						components.FormatMoney(
+							int64(rate.AmountMinor), rate.Currency,
+						),
+					))
+				}
+			}
+			description = append(
+				description,
+				"session "+components.FormatDuration(session),
+				"total "+components.FormatDuration(duration),
+			)
 			if amount := formatTaskAmounts(amounts); amount != "" {
 				description = append(description, amount+" earned")
 			}
@@ -538,6 +552,7 @@ func mapRates(rates map[int]storage.Rate) []storage.Rate {
 	for _, rate := range rates {
 		result = append(result, rate)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
 }
 
@@ -992,7 +1007,9 @@ func (m Dashboard) updateDetail(
 		if !ok {
 			return m, nil
 		}
-		form, err := taskForm(m.ctx, m.stor, &item.task, m.projectList)
+		form, err := taskForm(
+			m.ctx, m.stor, &item.task, m.projectList, mapRates(m.rates),
+		)
 		if err != nil {
 			m.err = err
 			return m, nil
@@ -1040,7 +1057,9 @@ func (m Dashboard) openSelectedTaskForm(deleteTask bool) (Dashboard, tea.Cmd) {
 		)
 	} else {
 		var err error
-		form, err = taskForm(m.ctx, m.stor, &task, m.projectList)
+		form, err = taskForm(
+			m.ctx, m.stor, &task, m.projectList, mapRates(m.rates),
+		)
 		if err != nil {
 			m.err = err
 			return m, nil
@@ -1052,7 +1071,9 @@ func (m Dashboard) openSelectedTaskForm(deleteTask bool) (Dashboard, tea.Cmd) {
 }
 
 func (m Dashboard) openHistoricalTask() (Dashboard, tea.Cmd) {
-	form, err := historicalTaskForm(m.ctx, m.stor, m.projectList, m.now)
+	form, err := historicalTaskForm(
+		m.ctx, m.stor, m.projectList, mapRates(m.rates), m.now,
+	)
 	if err != nil {
 		m.err = err
 		return m, nil
@@ -1104,7 +1125,7 @@ func (m *Dashboard) refreshDetailTask() bool {
 		if task.ID == id {
 			copy := task
 			m.detailTask = &copy
-			return task != previous
+			return !sameTask(task, previous)
 		}
 	}
 	m.detailTask = nil
@@ -1112,11 +1133,27 @@ func (m *Dashboard) refreshDetailTask() bool {
 	return true
 }
 
+func sameTask(left, right storage.Task) bool {
+	if left.ID != right.ID || left.Name != right.Name ||
+		left.ProjectID != right.ProjectID {
+		return false
+	}
+	if left.RateID == nil || right.RateID == nil {
+		return left.RateID == nil && right.RateID == nil
+	}
+	return *left.RateID == *right.RateID
+}
+
 func (m Dashboard) detailView() string {
 	task := *m.detailTask
 	project := m.projects[task.ProjectID]
 	duration, amounts := taskTotals(m.filteredEntries(), m.rates, task.ID, m.now)
-	summary := project + " · total " + components.FormatDuration(duration)
+	rate, overridden := effectiveTaskRate(task, m.projectList, m.rates)
+	summary := project
+	if rate.ID != 0 {
+		summary += " · " + formatTaskRate(rate, overridden)
+	}
+	summary += " · total " + components.FormatDuration(duration)
 	if amount := formatTaskAmounts(amounts); amount != "" {
 		summary += " · " + amount + " earned"
 	}
@@ -1136,18 +1173,25 @@ func (m Dashboard) detailView() string {
 type taskItem struct {
 	task        storage.Task
 	project     storage.Project
+	rate        storage.Rate
 	description string
 }
 
 func (t taskItem) Title() string       { return "[>] " + t.task.Name }
 func (t taskItem) Description() string { return t.description }
 func (t taskItem) FilterValue() string {
-	return t.task.Name + " " + t.project.Name
+	return t.task.Name + " " + t.project.Name + " " + t.rate.Name
 }
 
 type taskFormValues struct {
 	name      string
 	projectID int
+	rateID    int
+}
+
+type taskFormMeta struct {
+	projects []storage.Project
+	rates    []storage.Rate
 }
 
 func newTaskPage(
@@ -1178,13 +1222,15 @@ func newTaskPage(
 			}
 			return taskItemsForFilter(
 				tasks, projects, entries, rates, *filter, time.Now(),
-			), projects, nil
+			), taskFormMeta{projects: projects, rates: rates}, nil
 		},
 		Create: func(meta any) (*components.Form[taskItem], error) {
-			return taskForm(ctx, stor, nil, meta.([]storage.Project))
+			values := meta.(taskFormMeta)
+			return taskForm(ctx, stor, nil, values.projects, values.rates)
 		},
 		Update: func(item taskItem, meta any) (*components.Form[taskItem], error) {
-			return taskForm(ctx, stor, &item.task, meta.([]storage.Project))
+			values := meta.(taskFormMeta)
+			return taskForm(ctx, stor, &item.task, values.projects, values.rates)
 		},
 		Delete: func(item taskItem) *components.Form[taskItem] {
 			return components.NewDeleteForm[taskItem](
@@ -1294,6 +1340,11 @@ func summarizedTaskItems(
 	items := make([]taskItem, 0, len(ordered))
 	for _, summary := range ordered {
 		description := summary.Project.Name
+		if summary.Rate.ID != 0 {
+			description += " · " + formatTaskRate(
+				summary.Rate, summary.RateOverridden,
+			)
+		}
 		if summary.LastEndedAt != nil {
 			totalLabel := "total "
 			if periodFiltered {
@@ -1310,6 +1361,7 @@ func summarizedTaskItems(
 		items = append(items, taskItem{
 			task:        summary.Task,
 			project:     summary.Project,
+			rate:        summary.Rate,
 			description: description,
 		})
 	}
@@ -1341,13 +1393,43 @@ func formatTaskAmounts(amounts map[string]int64) string {
 	return strings.Join(formatted, ", ")
 }
 
+func formatTaskRate(rate storage.Rate, overridden bool) string {
+	source := "project rate"
+	if overridden {
+		source = "task rate"
+	}
+	return fmt.Sprintf(
+		"%s · %s/hour (%s)",
+		rate.Name,
+		components.FormatMoney(int64(rate.AmountMinor), rate.Currency),
+		source,
+	)
+}
+
+func effectiveTaskRate(
+	task storage.Task,
+	projects []storage.Project,
+	rates map[int]storage.Rate,
+) (storage.Rate, bool) {
+	if task.RateID != nil {
+		return rates[*task.RateID], true
+	}
+	for _, project := range projects {
+		if project.ID == task.ProjectID {
+			return rates[project.RateID], false
+		}
+	}
+	return storage.Rate{}, false
+}
+
 func taskForm(
 	ctx context.Context,
 	stor *storage.Storage,
 	task *storage.Task,
 	projects []storage.Project,
+	rates []storage.Rate,
 ) (*components.Form[taskItem], error) {
-	form, values, err := taskFields(task, projects)
+	form, values, err := taskFields(task, projects, rates)
 	if err != nil {
 		return nil, err
 	}
@@ -1362,6 +1444,7 @@ func taskForm(
 		func(ctx context.Context) error {
 			value := storage.Task{
 				Name: strings.TrimSpace(values.name), ProjectID: values.projectID,
+				RateID: optionalTaskRateID(values.rateID),
 			}
 			if task == nil {
 				return stor.CreateTaskAndStart(ctx, value, time.Now())
@@ -1376,6 +1459,7 @@ func historicalTaskForm(
 	ctx context.Context,
 	stor *storage.Storage,
 	projects []storage.Project,
+	rates []storage.Rate,
 	now time.Time,
 ) (*components.Form[taskItem], error) {
 	if len(projects) == 0 {
@@ -1384,6 +1468,7 @@ func historicalTaskForm(
 	now = now.Truncate(time.Minute)
 	name := ""
 	projectID := projects[0].ID
+	rateID := 0
 	startedAt := components.FormatDateTime(now.Add(-time.Hour))
 	endedAt := components.FormatDateTime(now)
 	note := ""
@@ -1400,6 +1485,10 @@ func historicalTaskForm(
 			Title("Project").
 			Options(options...).
 			Value(&projectID),
+		huh.NewSelect[int]().
+			Title("Rate").
+			Options(taskRateOptions(rates)...).
+			Value(&rateID),
 		huh.NewInput().
 			Title("Started at (YYYY-MM-DD HH:MM)").
 			Value(&startedAt).
@@ -1430,6 +1519,7 @@ func historicalTaskForm(
 				ctx,
 				storage.Task{
 					Name: strings.TrimSpace(name), ProjectID: projectID,
+					RateID: optionalTaskRateID(rateID),
 				},
 				storage.Entry{
 					StartedAt: started,
@@ -1444,6 +1534,7 @@ func historicalTaskForm(
 func taskFields(
 	task *storage.Task,
 	projects []storage.Project,
+	rates []storage.Rate,
 ) (*huh.Form, *taskFormValues, error) {
 	if len(projects) == 0 {
 		return nil, nil, errors.New("no projects available; create a project first")
@@ -1452,6 +1543,9 @@ func taskFields(
 	if task != nil {
 		values.name = task.Name
 		values.projectID = task.ProjectID
+		if task.RateID != nil {
+			values.rateID = *task.RateID
+		}
 	}
 	options := make([]huh.Option[int], len(projects))
 	for i, project := range projects {
@@ -1466,8 +1560,32 @@ func taskFields(
 			Title("Project").
 			Options(options...).
 			Value(&values.projectID),
+		huh.NewSelect[int]().
+			Title("Rate").
+			Options(taskRateOptions(rates)...).
+			Value(&values.rateID),
 	)).WithShowHelp(true)
 	return form, values, nil
+}
+
+func taskRateOptions(rates []storage.Rate) []huh.Option[int] {
+	options := []huh.Option[int]{huh.NewOption("Inherit project rate", 0)}
+	for _, rate := range rates {
+		label := fmt.Sprintf(
+			"%s · %s/hour",
+			rate.Name,
+			components.FormatMoney(int64(rate.AmountMinor), rate.Currency),
+		)
+		options = append(options, huh.NewOption(label, rate.ID))
+	}
+	return options
+}
+
+func optionalTaskRateID(rateID int) *int {
+	if rateID == 0 {
+		return nil
+	}
+	return &rateID
 }
 
 type entryItem struct {
@@ -1476,8 +1594,7 @@ type entryItem struct {
 }
 
 type entryMeta struct {
-	task    storage.Task
-	project storage.Project
+	task storage.Task
 }
 
 func (e entryItem) Title() string {
@@ -1523,24 +1640,16 @@ func newEntryPage(
 			if err != nil {
 				return nil, nil, err
 			}
-			project, err := stor.GetProject(ctx, task.ProjectID)
-			if err != nil {
-				return nil, nil, err
-			}
 			now := time.Now()
 			if filter != nil && (filter.Period.Kind != storage.All ||
 				!filter.Period.Start.IsZero() || !filter.Period.End.IsZero()) {
 				entries = entriesOverlappingPeriod(entries, filter.Period, now)
 			}
-			return entryItems(entries, task.ID, now), entryMeta{
-				task: task, project: project,
-			}, nil
+			return entryItems(entries, task.ID, now), entryMeta{task: task}, nil
 		},
 		Create: func(meta any) (*components.Form[entryItem], error) {
 			values := meta.(entryMeta)
-			return entryForm(
-				ctx, stor, values.task, values.project, nil, time.Now(),
-			), nil
+			return entryForm(ctx, stor, values.task, nil, time.Now()), nil
 		},
 		Update: func(
 			item entryItem,
@@ -1548,7 +1657,7 @@ func newEntryPage(
 		) (*components.Form[entryItem], error) {
 			values := meta.(entryMeta)
 			return entryForm(
-				ctx, stor, values.task, values.project, &item.entry, time.Now(),
+				ctx, stor, values.task, &item.entry, time.Now(),
 			), nil
 		},
 		Delete: func(item entryItem) *components.Form[entryItem] {
@@ -1605,7 +1714,6 @@ func entryForm(
 	ctx context.Context,
 	stor *storage.Storage,
 	task storage.Task,
-	project storage.Project,
 	entry *storage.Entry,
 	now time.Time,
 ) *components.Form[entryItem] {
@@ -1666,10 +1774,9 @@ func entryForm(
 				value.RateID = entry.RateID
 				return stor.UpdateEntry(ctx, value)
 			}
-			value.TaskID = &task.ID
-			value.ProjectID = &project.ID
-			value.RateID = &project.RateID
-			return stor.CreateEntry(ctx, value)
+			return stor.CreateEntryForTask(
+				ctx, task.ID, value.StartedAt, value.EndedAt, value.Note,
+			)
 		},
 	)
 }

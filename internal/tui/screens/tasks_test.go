@@ -73,6 +73,27 @@ func TestDashboardTasksByRecentEntry(t *testing.T) {
 	}
 }
 
+func TestTaskItemsDisplayEffectiveRate(t *testing.T) {
+	overrideID := 2
+	items := taskItems(
+		[]storage.Task{
+			{ID: 1, Name: "inherited", ProjectID: 1},
+			{ID: 2, Name: "overridden", ProjectID: 1, RateID: &overrideID},
+		},
+		[]storage.Project{{ID: 1, Name: "project", RateID: 1}},
+		nil,
+		[]storage.Rate{
+			{ID: 1, Name: "standard", AmountMinor: 10_000, Currency: "USD"},
+			{ID: 2, Name: "special", AmountMinor: 15_000, Currency: "USD"},
+		},
+	)
+	if len(items) != 2 ||
+		!strings.Contains(items[0].Description(), "$100.00/hour (project rate)") ||
+		!strings.Contains(items[1].Description(), "$150.00/hour (task rate)") {
+		t.Fatalf("task rates not displayed: %#v", items)
+	}
+}
+
 func TestDashboardHistoricalEntryDoesNotBecomeLatest(t *testing.T) {
 	taskOne := 1
 	taskTwo := 2
@@ -279,6 +300,9 @@ func TestDashboardResumedTaskTotals(t *testing.T) {
 	}
 	if !strings.Contains(view, "$75.00 earned") {
 		t.Fatalf("dashboard does not show cumulative amount:\n%s", view)
+	}
+	if !strings.Contains(view, "$50.00/hour") {
+		t.Fatalf("dashboard does not show active rate:\n%s", view)
 	}
 }
 
@@ -500,6 +524,26 @@ func TestDashboardTaskDetail(t *testing.T) {
 	updated, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if updated.detailTask != nil || updated.entryPage != nil {
 		t.Fatal("escape did not close task details")
+	}
+}
+
+func TestRefreshDetailTaskComparesRateValues(t *testing.T) {
+	firstRateID, reloadedRateID := 3, 3
+	m := NewDashboard(t.Context(), nil)
+	m.detailTask = &storage.Task{
+		ID: 1, Name: "task", ProjectID: 2, RateID: &firstRateID,
+	}
+	m.taskList = []storage.Task{{
+		ID: 1, Name: "task", ProjectID: 2, RateID: &reloadedRateID,
+	}}
+	if changed := m.refreshDetailTask(); changed {
+		t.Fatal("equal rate values were treated as a task change")
+	}
+
+	changedRateID := 4
+	m.taskList[0].RateID = &changedRateID
+	if changed := m.refreshDetailTask(); !changed {
+		t.Fatal("changed rate was not detected")
 	}
 }
 

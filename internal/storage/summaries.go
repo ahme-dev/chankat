@@ -19,12 +19,14 @@ type ProjectSummary struct {
 
 type TaskSummary struct {
 	Task
-	Project     Project
-	Active      bool
-	LastEndedAt *time.Time
-	LastEntryID int
-	Tracked     time.Duration
-	EarnedMinor map[string]int64
+	Project        Project
+	Rate           Rate
+	RateOverridden bool
+	Active         bool
+	LastEndedAt    *time.Time
+	LastEntryID    int
+	Tracked        time.Duration
+	EarnedMinor    map[string]int64
 }
 
 func SummarizeRates(rates []Rate, projects []Project) []RateSummary {
@@ -123,6 +125,12 @@ func SummarizeTasks(
 	result := make([]TaskSummary, len(tasks))
 	for i, task := range tasks {
 		tracked, earned := TaskTotals(entries, ratesByID, task.ID, now)
+		project := projectsByID[task.ProjectID]
+		rateID := project.RateID
+		rateOverridden := task.RateID != nil
+		if rateOverridden {
+			rateID = *task.RateID
+		}
 		var lastEndedAt *time.Time
 		lastEntryID := 0
 		active := false
@@ -143,7 +151,8 @@ func SummarizeTasks(
 			}
 		}
 		result[i] = TaskSummary{
-			Task: task, Project: projectsByID[task.ProjectID], Active: active,
+			Task: task, Project: project, Rate: ratesByID[rateID],
+			RateOverridden: rateOverridden, Active: active,
 			LastEndedAt: lastEndedAt, LastEntryID: lastEntryID,
 			Tracked: tracked, EarnedMinor: earned,
 		}

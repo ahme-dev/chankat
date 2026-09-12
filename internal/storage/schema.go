@@ -61,8 +61,14 @@ UPDATE PAYMENT
 SET PAID_FOR_DATE = PAID_AT
 `
 
+const addTaskRate = `
+ALTER TABLE TASK
+	ADD COLUMN RATE_ID INTEGER REFERENCES RATE(ID)
+`
+
 var migrations = []string{
 	initial,
 	addPaidForDate,
 	normalizePaymentDates,
+	addTaskRate,
 }

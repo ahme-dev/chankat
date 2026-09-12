@@ -83,12 +83,13 @@ func (r runner) listTasks(args []string) error {
 	}
 	rows := make([]string, len(output))
 	for i, item := range output {
-		rows[i] = fmt.Sprintf("%d\t%s\t%d\t%s\t%t\t%s\t%s", item.ID,
-			item.Name, item.ProjectID, item.ProjectName, item.Active,
+		rows[i] = fmt.Sprintf("%d\t%s\t%d\t%s\t%d\t%s\t%d\t%s\t%t\t%t\t%s\t%s", item.ID,
+			item.Name, item.ProjectID, item.ProjectName, item.RateID, item.RateName,
+			item.RateAmountMinor, item.RateCurrency, item.RateOverridden, item.Active,
 			formatTracked(item.TrackedSeconds), formatMinorMap(item.EarnedMinor))
 	}
 	return r.table(
-		"ID\tNAME\tPROJECT_ID\tPROJECT\tACTIVE\tTRACKED\tEARNED_MINOR",
+		"ID\tNAME\tPROJECT_ID\tPROJECT\tRATE_ID\tRATE\tRATE_AMOUNT_MINOR\tRATE_CURRENCY\tRATE_OVERRIDDEN\tACTIVE\tTRACKED\tEARNED_MINOR",
 		rows,
 	)
 }
@@ -112,10 +113,11 @@ func (r runner) getTask(args []string) error {
 				return r.writeJSON(output)
 			}
 			return r.table(
-				"ID\tNAME\tPROJECT_ID\tPROJECT\tACTIVE\tTRACKED\tEARNED_MINOR",
-				[]string{fmt.Sprintf("%d\t%s\t%d\t%s\t%t\t%s\t%s", output.ID,
-					output.Name, output.ProjectID, output.ProjectName,
-					output.Active, formatTracked(output.TrackedSeconds),
+				"ID\tNAME\tPROJECT_ID\tPROJECT\tRATE_ID\tRATE\tRATE_AMOUNT_MINOR\tRATE_CURRENCY\tRATE_OVERRIDDEN\tACTIVE\tTRACKED\tEARNED_MINOR",
+				[]string{fmt.Sprintf("%d\t%s\t%d\t%s\t%d\t%s\t%d\t%s\t%t\t%t\t%s\t%s", output.ID,
+					output.Name, output.ProjectID, output.ProjectName, output.RateID,
+					output.RateName, output.RateAmountMinor, output.RateCurrency,
+					output.RateOverridden, output.Active, formatTracked(output.TrackedSeconds),
 					formatMinorMap(output.EarnedMinor))},
 			)
 		}
@@ -127,6 +129,7 @@ func (r runner) createTask(args []string) error {
 	flags := r.flags("tasks", "create")
 	name := flags.String("name", "", "task name")
 	projectID := flags.Int("project", 0, "project ID")
+	rateID := flags.Int("rate", 0, "task rate override ID")
 	start := flags.Bool("start", false, "start tracking now")
 	startedAt := flags.String("started-at", "", "RFC3339 or YYYY-MM-DD HH:MM")
 	endedAt := flags.String("ended-at", "", "RFC3339 or YYYY-MM-DD HH:MM")
@@ -140,7 +143,9 @@ func (r runner) createTask(args []string) error {
 	if err := required(flags, "name", "project"); err != nil {
 		return err
 	}
-	task := storage.Task{Name: *name, ProjectID: *projectID}
+	task := storage.Task{
+		Name: *name, ProjectID: *projectID, RateID: optionalID(*rateID),
+	}
 	hasEntry := *start || changed(flags, "started-at") || changed(flags, "ended-at")
 	if !hasEntry {
 		if changed(flags, "note") {
@@ -198,6 +203,11 @@ func (r runner) updateTask(args []string) error {
 	flags := r.flags("tasks", "update")
 	name := flags.String("name", task.Name, "task name")
 	projectID := flags.Int("project", task.ProjectID, "project ID")
+	currentRateID := 0
+	if task.RateID != nil {
+		currentRateID = *task.RateID
+	}
+	rateID := flags.Int("rate", currentRateID, "task rate override ID; 0 inherits project")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -208,10 +218,18 @@ func (r runner) updateTask(args []string) error {
 		return fmt.Errorf("expected at least one update option")
 	}
 	task.Name, task.ProjectID = *name, *projectID
+	task.RateID = optionalID(*rateID)
 	if err := r.stor.UpdateTask(r.ctx, task); err != nil {
 		return err
 	}
 	return r.status("updated", "task", id)
+}
+
+func optionalID(id int) *int {
+	if id == 0 {
+		return nil
+	}
+	return &id
 }
 
 func (r runner) deleteTask(args []string) error {
