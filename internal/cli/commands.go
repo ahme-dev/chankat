@@ -175,9 +175,14 @@ var commandSpecs = map[string]resourceSpec{
 				},
 			},
 			"update": {
-				usage:      "chankat entries update ID [--started-at TIME] [--ended-at TIME] [--note TEXT]",
+				usage:      "chankat entries update ID [--rate ID|0] [--started-at TIME] [--ended-at TIME] [--note TEXT]",
 				positional: completeEntryID,
-				options:    options("started-at", "ended-at", "note"),
+				options: []optionSpec{
+					{name: "rate", value: completeRateID},
+					{name: "started-at"},
+					{name: "ended-at"},
+					{name: "note"},
+				},
 			},
 			"delete": {
 				usage: "chankat entries delete ID", positional: completeEntryID,

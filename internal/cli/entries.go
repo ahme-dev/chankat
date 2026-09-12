@@ -149,7 +149,12 @@ func (r runner) updateEntry(args []string) error {
 	if entry.EndedAt != nil {
 		endedDefault = entry.EndedAt.Format(time.RFC3339)
 	}
+	currentRateID := 0
+	if entry.RateID != nil {
+		currentRateID = *entry.RateID
+	}
 	flags := r.flags("entries", "update")
+	rateID := flags.Int("rate", currentRateID, "rate ID; 0 clears the rate")
 	startedAt := flags.String("started-at", entry.StartedAt.Format(time.RFC3339),
 		"RFC3339 or YYYY-MM-DD HH:MM")
 	endedAt := flags.String("ended-at", endedDefault,
@@ -177,6 +182,7 @@ func (r runner) updateEntry(args []string) error {
 		}
 		entry.EndedAt = &value
 	}
+	entry.RateID = optionalID(*rateID)
 	entry.Note = *note
 	if err := r.stor.UpdateEntry(r.ctx, entry); err != nil {
 		return err

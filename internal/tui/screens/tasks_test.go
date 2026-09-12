@@ -619,3 +619,15 @@ func TestEntryItems(t *testing.T) {
 		t.Fatalf("entry description missing note: %q", items[1].Description())
 	}
 }
+
+func TestEntryRateOptions(t *testing.T) {
+	options := entryRateOptions([]storage.Rate{
+		{ID: 1, Name: "Old", AmountMinor: 10_000, Currency: "USD"},
+		{ID: 2, Name: "Corrected", AmountMinor: 20_000, Currency: "USD"},
+	})
+	if len(options) != 3 || options[0].Value != 0 ||
+		options[1].Value != 1 || options[2].Value != 2 ||
+		!strings.Contains(options[2].Key, "$200.00/hour") {
+		t.Fatalf("entry rate options = %#v", options)
+	}
+}
