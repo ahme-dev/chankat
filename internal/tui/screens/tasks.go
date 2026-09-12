@@ -1451,7 +1451,7 @@ func taskForm(
 		func(ctx context.Context) error {
 			value := storage.Task{
 				Name: strings.TrimSpace(values.name), ProjectID: values.projectID,
-				RateID: optionalTaskRateID(values.rateID),
+				RateID: optionalRateID(values.rateID),
 			}
 			if task == nil {
 				return stor.CreateTaskAndStart(ctx, value, time.Now())
@@ -1553,7 +1553,7 @@ func historicalTaskForm(
 				ctx,
 				storage.Task{
 					Name: strings.TrimSpace(name), ProjectID: projectID,
-					RateID: optionalTaskRateID(rateID),
+					RateID: optionalRateID(rateID),
 				},
 				storage.Entry{
 					StartedAt: started,
@@ -1615,7 +1615,7 @@ func taskRateOptions(rates []storage.Rate) []huh.Option[int] {
 	return options
 }
 
-func optionalTaskRateID(rateID int) *int {
+func optionalRateID(rateID int) *int {
 	if rateID == 0 {
 		return nil
 	}
@@ -1629,7 +1629,8 @@ type entryItem struct {
 }
 
 type entryMeta struct {
-	task storage.Task
+	task  storage.Task
+	rates []storage.Rate
 }
 
 func (e entryItem) Title() string {
@@ -1699,11 +1700,13 @@ func newEntryPage(
 					items[i].rate = byID[*items[i].entry.RateID]
 				}
 			}
-			return items, entryMeta{task: task}, nil
+			return items, entryMeta{task: task, rates: rates}, nil
 		},
 		Create: func(meta any) (*components.Form[entryItem], error) {
 			values := meta.(entryMeta)
-			return entryForm(ctx, stor, values.task, nil, time.Now()), nil
+			return entryForm(
+				ctx, stor, values.task, nil, values.rates, time.Now(),
+			), nil
 		},
 		Update: func(
 			item entryItem,
@@ -1711,7 +1714,7 @@ func newEntryPage(
 		) (*components.Form[entryItem], error) {
 			values := meta.(entryMeta)
 			return entryForm(
-				ctx, stor, values.task, &item.entry, time.Now(),
+				ctx, stor, values.task, &item.entry, values.rates, time.Now(),
 			), nil
 		},
 		Delete: func(item entryItem) *components.Form[entryItem] {
@@ -1769,12 +1772,14 @@ func entryForm(
 	stor *storage.Storage,
 	task storage.Task,
 	entry *storage.Entry,
+	rates []storage.Rate,
 	now time.Time,
 ) *components.Form[entryItem] {
 	now = now.Truncate(time.Minute)
 	startedAt := components.FormatDateTime(now.Add(-time.Hour))
 	endedAt := components.FormatDateTime(now)
 	note := ""
+	rateID := 0
 	action := "add"
 	if entry != nil {
 		startedAt = components.FormatDateTime(entry.StartedAt)
@@ -1783,9 +1788,12 @@ func entryForm(
 			endedAt = components.FormatDateTime(*entry.EndedAt)
 		}
 		note = entry.Note
+		if entry.RateID != nil {
+			rateID = *entry.RateID
+		}
 		action = "edit"
 	}
-	form := huh.NewForm(huh.NewGroup(
+	fields := []huh.Field{
 		huh.NewInput().
 			Title("Started at (YYYY-MM-DD HH:MM)").
 			Value(&startedAt).
@@ -1794,10 +1802,19 @@ func entryForm(
 			Title("Ended at (blank means active)").
 			Value(&endedAt).
 			Validate(components.EntryEndTime(&startedAt, entry != nil)),
+	}
+	if entry != nil {
+		fields = append(fields, huh.NewSelect[int]().
+			Title("Rate").
+			Options(entryRateOptions(rates)...).
+			Value(&rateID))
+	}
+	fields = append(fields,
 		huh.NewInput().
 			Title("Note").
 			Value(&note),
-	)).WithShowHelp(true)
+	)
+	form := huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(true)
 
 	return components.NewForm[entryItem](
 		ctx,
@@ -1825,7 +1842,7 @@ func entryForm(
 				value.ID = entry.ID
 				value.TaskID = entry.TaskID
 				value.ProjectID = entry.ProjectID
-				value.RateID = entry.RateID
+				value.RateID = optionalRateID(rateID)
 				return stor.UpdateEntry(ctx, value)
 			}
 			return stor.CreateEntryForTask(
@@ -1833,4 +1850,17 @@ func entryForm(
 			)
 		},
 	)
+}
+
+func entryRateOptions(rates []storage.Rate) []huh.Option[int] {
+	options := []huh.Option[int]{huh.NewOption("No rate (unbilled)", 0)}
+	for _, rate := range rates {
+		label := fmt.Sprintf(
+			"%s · %s/hour",
+			rate.Name,
+			components.FormatMoney(int64(rate.AmountMinor), rate.Currency),
+		)
+		options = append(options, huh.NewOption(label, rate.ID))
+	}
+	return options
 }

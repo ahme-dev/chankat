@@ -165,6 +165,36 @@ func TestCLITaskRateOverrideCanBeChangedAndCleared(t *testing.T) {
 	}
 }
 
+func TestCLIEntryRateCanBeChangedAndCleared(t *testing.T) {
+	stor := cliStorage(t)
+	for _, args := range [][]string{
+		{"rates", "create", "--name", "Old", "--amount-minor", "10000", "--currency", "USD"},
+		{"rates", "create", "--name", "Corrected", "--amount-minor", "25000", "--currency", "USD"},
+		{"projects", "create", "--name", "Project", "--rate", "1"},
+		{"tasks", "create", "--name", "Task", "--project", "1", "--started-at", "2026-01-01 09:00", "--ended-at", "2026-01-01 10:00"},
+	} {
+		runCLI(t, stor, args...)
+	}
+
+	runCLI(t, stor, "entries", "update", "1", "--rate", "2")
+	var entry entryOutput
+	decodeCLI(t, stor, &entry, "--json", "entries", "get", "1")
+	if entry.RateID == nil || *entry.RateID != 2 {
+		t.Fatalf("updated entry rate = %#v", entry.RateID)
+	}
+	var projects []projectOutput
+	decodeCLI(t, stor, &projects, "--json", "projects", "list")
+	if projects[0].EarnedMinor["USD"] != 25_000 {
+		t.Fatalf("earnings after rate correction = %#v", projects[0].EarnedMinor)
+	}
+
+	runCLI(t, stor, "entries", "update", "1", "--rate", "0")
+	decodeCLI(t, stor, &entry, "--json", "entries", "get", "1")
+	if entry.RateID != nil {
+		t.Fatalf("cleared entry rate = %#v", entry.RateID)
+	}
+}
+
 func TestCLIProjectMoveAndArchiveKeepHistoricalEarnings(t *testing.T) {
 	stor := cliStorage(t)
 	for _, args := range [][]string{
