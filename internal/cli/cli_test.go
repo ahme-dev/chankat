@@ -137,6 +137,34 @@ func TestCLICreatesHistoricalTaskAndActiveEntry(t *testing.T) {
 	}
 }
 
+func TestCLITaskRateOverrideCanBeChangedAndCleared(t *testing.T) {
+	stor := cliStorage(t)
+	for _, args := range [][]string{
+		{"rates", "create", "--name", "First", "--amount-minor", "10000", "--currency", "USD"},
+		{"rates", "create", "--name", "Second", "--amount-minor", "20000", "--currency", "USD"},
+		{"rates", "create", "--name", "Override", "--amount-minor", "30000", "--currency", "USD"},
+		{"projects", "create", "--name", "One", "--rate", "1"},
+		{"projects", "create", "--name", "Two", "--rate", "2"},
+		{"tasks", "create", "--name", "Task", "--project", "1", "--rate", "3"},
+	} {
+		runCLI(t, stor, args...)
+	}
+
+	var task taskOutput
+	decodeCLI(t, stor, &task, "--json", "tasks", "get", "1")
+	if task.RateID != 3 || task.RateAmountMinor != 30_000 ||
+		!task.RateOverridden {
+		t.Fatalf("task override output = %#v", task)
+	}
+
+	runCLI(t, stor, "tasks", "update", "1", "--project", "2", "--rate", "0")
+	decodeCLI(t, stor, &task, "--json", "tasks", "get", "1")
+	if task.ProjectID != 2 || task.RateID != 2 ||
+		task.RateAmountMinor != 20_000 || task.RateOverridden {
+		t.Fatalf("inherited task output = %#v", task)
+	}
+}
+
 func TestCLIStopsAllTasks(t *testing.T) {
 	stor := cliStorage(t)
 	runCLI(t, stor, "rates", "create", "--name", "Rate",

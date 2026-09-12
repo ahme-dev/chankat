@@ -113,10 +113,11 @@ var commandSpecs = map[string]resourceSpec{
 				usage: "chankat tasks get ID", positional: completeTaskID,
 			},
 			"create": {
-				usage: "chankat tasks create --name NAME --project ID [--start | --started-at TIME [--ended-at TIME]] [--note TEXT]",
+				usage: "chankat tasks create --name NAME --project ID [--rate ID] [--start | --started-at TIME [--ended-at TIME]] [--note TEXT]",
 				options: []optionSpec{
 					{name: "name"},
 					{name: "project", value: completeProjectID},
+					{name: "rate", value: completeRateID},
 					{name: "start", boolean: true},
 					{name: "started-at"},
 					{name: "ended-at"},
@@ -124,11 +125,12 @@ var commandSpecs = map[string]resourceSpec{
 				},
 			},
 			"update": {
-				usage:      "chankat tasks update ID [--name NAME] [--project ID]",
+				usage:      "chankat tasks update ID [--name NAME] [--project ID] [--rate ID|0]",
 				positional: completeTaskID,
 				options: []optionSpec{
 					{name: "name"},
 					{name: "project", value: completeProjectID},
+					{name: "rate", value: completeRateID},
 				},
 			},
 			"delete": {

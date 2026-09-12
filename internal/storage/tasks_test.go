@@ -60,6 +60,35 @@ func TestCreateTaskAndStart(t *testing.T) {
 		}
 	})
 
+	t.Run("uses task rate override", func(t *testing.T) {
+		stor := fixtureStorage(t)
+		ctx := t.Context()
+		project := fixtureProject(t, stor)
+		if err := stor.CreateRate(ctx, storage.Rate{
+			Name: "override", AmountMinor: 20_000, Currency: "USD",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rates, err := stor.GetRates(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		overrideRateID := rates[1].ID
+		if err := stor.CreateTaskAndStart(ctx, storage.Task{
+			Name: "custom", ProjectID: project.ID, RateID: &overrideRateID,
+		}, time.Unix(1_700_000_000, 0)); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := stor.GetEntries(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 || entries[0].RateID == nil ||
+			*entries[0].RateID != overrideRateID {
+			t.Fatalf("override was not captured: %#v", entries)
+		}
+	})
+
 	t.Run("rolls back for missing project", func(t *testing.T) {
 		stor := fixtureStorage(t)
 		err := stor.CreateTaskAndStart(t.Context(), storage.Task{
@@ -167,6 +196,92 @@ func TestTaskEntriesCaptureProjectRateChanges(t *testing.T) {
 	)
 	if got := summaries[0].BalanceMinor["USD"]; got != 17_500 {
 		t.Fatalf("historical-rate earnings = %d, want 17500", got)
+	}
+}
+
+func TestTaskRateOverrideAndProjectChangesAffectFutureEntries(t *testing.T) {
+	stor := fixtureStorage(t)
+	ctx := t.Context()
+	firstProject := fixtureProject(t, stor)
+	if err := stor.CreateRate(ctx, storage.Rate{
+		Name: "second project", AmountMinor: 20_000, Currency: "USD",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.CreateRate(ctx, storage.Rate{
+		Name: "task override", AmountMinor: 30_000, Currency: "USD",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rates, err := stor.GetRates(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.CreateProject(ctx, storage.Project{
+		Name: "second", RateID: rates[1].ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	projects, err := stor.GetProjects(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.CreateTask(ctx, storage.Task{
+		Name: "movable", ProjectID: firstProject.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	startedAt := time.Unix(1_700_000_000, 0)
+	startAndStop := func(offset time.Duration) {
+		t.Helper()
+		start := startedAt.Add(offset)
+		if err := stor.StartTask(ctx, 1, start); err != nil {
+			t.Fatal(err)
+		}
+		if err := stor.PauseTask(ctx, 1, start.Add(time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	startAndStop(0)
+
+	overrideRateID := rates[2].ID
+	if err := stor.UpdateTask(ctx, storage.Task{
+		ID: 1, Name: "movable", ProjectID: projects[1].ID,
+		RateID: &overrideRateID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	startAndStop(2 * time.Hour)
+
+	if err := stor.UpdateTask(ctx, storage.Task{
+		ID: 1, Name: "movable", ProjectID: projects[1].ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	startAndStop(4 * time.Hour)
+
+	task, err := stor.GetTask(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ProjectID != projects[1].ID || task.RateID != nil {
+		t.Fatalf("unexpected updated task: %#v", task)
+	}
+	entries, err := stor.GetEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProjects := []int{firstProject.ID, projects[1].ID, projects[1].ID}
+	wantRates := []int{firstProject.RateID, overrideRateID, rates[1].ID}
+	if len(entries) != len(wantRates) {
+		t.Fatalf("got %d entries, want %d", len(entries), len(wantRates))
+	}
+	for i, entry := range entries {
+		if entry.ProjectID == nil || *entry.ProjectID != wantProjects[i] ||
+			entry.RateID == nil || *entry.RateID != wantRates[i] {
+			t.Fatalf("entry %d = %#v", i, entry)
+		}
 	}
 }
 
