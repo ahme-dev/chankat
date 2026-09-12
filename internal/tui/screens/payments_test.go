@@ -16,7 +16,6 @@ func TestPaymentItem(t *testing.T) {
 		AmountMinor: 150_050,
 		Currency:    "USD",
 		PaidAt:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
-		PaidForDate: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
 		Note:        "June",
 	}
 	item := paymentItems([]storage.Payment{payment}, []storage.Project{project})[0]
@@ -24,7 +23,7 @@ func TestPaymentItem(t *testing.T) {
 	if got := item.Title(); got != "$1,500.50 · Client" {
 		t.Fatalf("got title %q", got)
 	}
-	for _, value := range []string{"2026-07-20", "2026-06-30", "June"} {
+	for _, value := range []string{"2026-07-20", "June"} {
 		if !strings.Contains(item.Description(), value) {
 			t.Fatalf("description %q does not contain %q", item.Description(), value)
 		}

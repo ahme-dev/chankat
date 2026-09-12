@@ -123,9 +123,9 @@ func (s *Storage) SeedDevelopment(
 	}
 
 	payments := []Payment{
-		{ID: 1, ProjectID: 1, AmountMinor: 45_000, Currency: "USD", PaidAt: day, PaidForDate: week, Note: "Weekly invoice"},
-		{ID: 2, ProjectID: 2, AmountMinor: 72_000, Currency: "USD", PaidAt: day.AddDate(0, 0, -2), PaidForDate: month, Note: "Retainer installment"},
-		{ID: 3, ProjectID: 3, AmountMinor: 33_000, Currency: "EUR", PaidAt: month.AddDate(0, 0, -1), PaidForDate: month.AddDate(0, -1, 1), Note: "Brand discovery"},
+		{ID: 1, ProjectID: 1, AmountMinor: 45_000, Currency: "USD", PaidAt: day, Note: "Weekly invoice"},
+		{ID: 2, ProjectID: 2, AmountMinor: 72_000, Currency: "USD", PaidAt: day.AddDate(0, 0, -2), Note: "Retainer installment"},
+		{ID: 3, ProjectID: 3, AmountMinor: 33_000, Currency: "EUR", PaidAt: month.AddDate(0, 0, -1), Note: "Brand discovery"},
 	}
 	for _, payment := range payments {
 		if _, err := tx.ExecContext(ctx, `
@@ -134,7 +134,7 @@ func (s *Storage) SeedDevelopment(
 				PAID_AT, PAID_FOR_DATE, NOTES
 			) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`, payment.ID, payment.ProjectID, payment.AmountMinor, payment.Currency,
-			payment.PaidAt.Unix(), payment.PaidForDate.Unix(), payment.Note); err != nil {
+			payment.PaidAt.Unix(), payment.PaidAt.Unix(), payment.Note); err != nil {
 			return fmt.Errorf("seed development data: insert payment: %w", err)
 		}
 	}

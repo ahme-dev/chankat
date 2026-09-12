@@ -51,7 +51,18 @@ ALTER TABLE PAYMENT
 	ADD COLUMN PAID_FOR_DATE INTEGER NOT NULL DEFAULT 0
 `
 
+const normalizePaymentDates = `
+UPDATE PAYMENT
+SET PAID_AT = CAST(strftime(
+	'%s', datetime(PAID_AT, 'unixepoch', 'localtime', 'start of day')
+) AS INTEGER);
+
+UPDATE PAYMENT
+SET PAID_FOR_DATE = PAID_AT
+`
+
 var migrations = []string{
 	initial,
 	addPaidForDate,
+	normalizePaymentDates,
 }

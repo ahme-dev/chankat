@@ -15,6 +15,7 @@ type dashboardOutput struct {
 	EarnedMinor    map[string]int64         `json:"earned_minor"`
 	PaidMinor      map[string]int64         `json:"paid_minor"`
 	NetMinor       map[string]int64         `json:"net_minor"`
+	BalanceMinor   map[string]int64         `json:"balance_minor"`
 	Projects       []dashboardProjectOutput `json:"projects"`
 }
 
@@ -25,6 +26,7 @@ type dashboardProjectOutput struct {
 	EarnedMinor    map[string]int64      `json:"earned_minor"`
 	PaidMinor      map[string]int64      `json:"paid_minor"`
 	NetMinor       map[string]int64      `json:"net_minor"`
+	BalanceMinor   map[string]int64      `json:"balance_minor"`
 	Tasks          []dashboardTaskOutput `json:"tasks"`
 }
 
@@ -126,15 +128,19 @@ func (r runner) runDashboard(args []string) error {
 	}
 	rows := make([]string, len(output.Projects)+1)
 	for i, project := range output.Projects {
-		rows[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s",
+		rows[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s",
 			project.ProjectName, formatTracked(project.TrackedSeconds),
 			formatMinorMap(project.EarnedMinor), formatMinorMap(project.PaidMinor),
-			formatMinorMap(project.NetMinor))
+			formatMinorMap(project.NetMinor), formatMinorMap(project.BalanceMinor))
 	}
-	rows[len(rows)-1] = fmt.Sprintf("TOTAL\t%s\t%s\t%s\t%s",
+	rows[len(rows)-1] = fmt.Sprintf("TOTAL\t%s\t%s\t%s\t%s\t%s",
 		formatTracked(output.TrackedSeconds), formatMinorMap(output.EarnedMinor),
-		formatMinorMap(output.PaidMinor), formatMinorMap(output.NetMinor))
-	return r.table("PROJECT\tTRACKED\tEARNED_MINOR\tPAID_MINOR\tNET_MINOR", rows)
+		formatMinorMap(output.PaidMinor), formatMinorMap(output.NetMinor),
+		formatMinorMap(output.BalanceMinor))
+	return r.table(
+		"PROJECT\tTRACKED\tEARNED_MINOR\tPAID_MINOR\tNET_MINOR\tBALANCE_MINOR",
+		rows,
+	)
 }
 
 func filterDashboardEntries(entries []storage.Entry, projectID int) []storage.Entry {
@@ -164,7 +170,7 @@ func makeDashboardOutput(
 	output := dashboardOutput{
 		Period: string(period.Kind), TrackedSeconds: int64(summary.Tracked / time.Second),
 		EarnedMinor: summary.EarnedMinor, PaidMinor: summary.PaidMinor,
-		NetMinor: summary.NetMinor,
+		NetMinor: summary.NetMinor, BalanceMinor: summary.BalanceMinor,
 		Projects: make([]dashboardProjectOutput, 0, len(summary.Projects)),
 	}
 	if period.Kind == "" {
@@ -181,8 +187,8 @@ func makeDashboardOutput(
 			ProjectID: project.ProjectID, ProjectName: project.ProjectName,
 			TrackedSeconds: int64(project.Tracked / time.Second),
 			EarnedMinor:    project.EarnedMinor, PaidMinor: project.PaidMinor,
-			NetMinor: project.NetMinor,
-			Tasks:    make([]dashboardTaskOutput, 0, len(project.Tasks)),
+			NetMinor: project.NetMinor, BalanceMinor: project.BalanceMinor,
+			Tasks: make([]dashboardTaskOutput, 0, len(project.Tasks)),
 		}
 		for _, task := range project.Tasks {
 			item.Tasks = append(item.Tasks, dashboardTaskOutput{

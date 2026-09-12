@@ -3,7 +3,6 @@ package screens
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -32,11 +31,7 @@ func (p paymentItem) Title() string {
 }
 
 func (p paymentItem) Description() string {
-	description := fmt.Sprintf(
-		"paid %s · for %s",
-		components.FormatDate(p.payment.PaidAt),
-		components.FormatDate(p.payment.PaidForDate),
-	)
+	description := "paid " + components.FormatDate(p.payment.PaidAt)
 	if p.payment.Note != "" {
 		description += " · " + p.payment.Note
 	}
@@ -113,13 +108,11 @@ func paymentForm(
 	values := storage.Payment{ProjectID: projects[0].ID}
 	amountMinor := ""
 	paidAt := today
-	paidForDate := today
 	action := "new"
 	if payment != nil {
 		values = *payment
 		amountMinor = strconv.Itoa(payment.AmountMinor)
 		paidAt = components.FormatDate(payment.PaidAt)
-		paidForDate = components.FormatDate(payment.PaidForDate)
 		action = "edit"
 	}
 
@@ -147,10 +140,6 @@ func paymentForm(
 			Value(&paidAt).
 			Validate(components.Date),
 		huh.NewInput().
-			Title("Paid for (YYYY-MM-DD)").
-			Value(&paidForDate).
-			Validate(components.Date),
-		huh.NewInput().
 			Title("Note").
 			Value(&values.Note),
 	)).WithShowHelp(true)
@@ -171,11 +160,6 @@ func paymentForm(
 				return err
 			}
 			values.PaidAt = parsedPaidAt
-			parsedPaidForDate, err := components.ParseDate(paidForDate)
-			if err != nil {
-				return err
-			}
-			values.PaidForDate = parsedPaidForDate
 			if payment == nil {
 				return stor.CreatePayment(ctx, values)
 			}

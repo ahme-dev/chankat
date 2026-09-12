@@ -38,8 +38,8 @@ func TestSummarizeDashboardClipsEntriesAndGroupsProjects(t *testing.T) {
 		},
 	}
 	payments := []storage.Payment{
-		{ProjectID: 1, AmountMinor: 5_000, Currency: "USD", PaidForDate: start},
-		{ProjectID: 2, AmountMinor: 9_000, Currency: "USD", PaidForDate: end},
+		{ProjectID: 1, AmountMinor: 5_000, Currency: "USD", PaidAt: start},
+		{ProjectID: 2, AmountMinor: 9_000, Currency: "USD", PaidAt: end},
 	}
 
 	got := storage.SummarizeDashboard(
@@ -90,6 +90,54 @@ func TestSummarizeDashboardKeepsCurrenciesSeparate(t *testing.T) {
 		t.Fatalf("earned = %v", got.EarnedMinor)
 	}
 }
+
+func TestSummarizeDashboardUsesStableProjectRounding(t *testing.T) {
+	start := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	project1, project2, rateID := 1, 2, 1
+	got := storage.SummarizeDashboard(
+		[]storage.Project{{ID: project1}, {ID: project2}},
+		nil,
+		[]storage.Rate{{ID: rateID, AmountMinor: 1, Currency: "USD"}},
+		[]storage.Entry{
+			{ProjectID: &project1, RateID: &rateID, StartedAt: start,
+				EndedAt: timePointer(start.Add(30 * time.Minute))},
+			{ProjectID: &project2, RateID: &rateID, StartedAt: start,
+				EndedAt: timePointer(start.Add(30 * time.Minute))},
+		},
+		nil, start, end, end,
+	)
+	if got.EarnedMinor["USD"] != 0 {
+		t.Fatalf("earned = %v, want project-rounded total", got.EarnedMinor)
+	}
+	var projectTotal int64
+	for _, project := range got.Projects {
+		projectTotal += project.EarnedMinor["USD"]
+	}
+	if projectTotal != got.EarnedMinor["USD"] {
+		t.Fatalf("project total = %d, dashboard total = %d",
+			projectTotal, got.EarnedMinor["USD"])
+	}
+}
+
+func TestSummarizeDashboardTreatsPaymentsAsCivilDates(t *testing.T) {
+	location := time.FixedZone("UTC-5", -5*60*60)
+	start := time.Date(2026, 9, 12, 0, 0, 0, 0, location)
+	got := storage.SummarizeDashboard(
+		[]storage.Project{{ID: 1, RateID: 1}}, nil,
+		[]storage.Rate{{ID: 1, Currency: "USD"}}, nil,
+		[]storage.Payment{{
+			ProjectID: 1, AmountMinor: 5_000, Currency: "USD",
+			PaidAt: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC),
+		}},
+		start, start.AddDate(0, 0, 1), start.Add(12*time.Hour),
+	)
+	if got.PaidMinor["USD"] != 5_000 || got.BalanceMinor["USD"] != -5_000 {
+		t.Fatalf("payment date shifted across zones: %#v", got)
+	}
+}
+
+func timePointer(value time.Time) *time.Time { return &value }
 
 func TestSummarizeDashboardTimelineSplitsEntriesAcrossHours(t *testing.T) {
 	start := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)

@@ -317,7 +317,19 @@ func (s *Storage) UpdateTask(ctx context.Context, task Task) error {
 }
 
 func (s *Storage) DeleteTask(ctx context.Context, id int) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM TASK WHERE ID = $1`, id)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete task: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE ENTRY SET TASK_ID = NULL WHERE TASK_ID = $1`,
+		id,
+	); err != nil {
+		return fmt.Errorf("detach task entries: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM TASK WHERE ID = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete task: %w", err)
 	}
@@ -327,6 +339,9 @@ func (s *Storage) DeleteTask(ctx context.Context, id int) error {
 	}
 	if deleted == 0 {
 		return fmt.Errorf("task %d not found", id)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete task: %w", err)
 	}
 	return nil
 }

@@ -1,12 +1,116 @@
 package storage_test
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"chankat/internal/storage"
 )
+
+func TestMigrationBackfillsLegacyPaymentDate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPaidAt := time.Date(2024, 2, 1, 0, 0, 0, 0, time.Local).Unix()
+	paidAt := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC).Unix()
+	if _, err := db.Exec(`
+		CREATE TABLE PAYMENT (
+			ID INTEGER PRIMARY KEY,
+			PROJECT_ID INTEGER NOT NULL,
+			AMOUNT_MINOR INTEGER NOT NULL,
+			CURRENCY TEXT NOT NULL,
+			PAID_AT INTEGER NOT NULL,
+			NOTES TEXT NOT NULL DEFAULT ''
+		);
+		INSERT INTO PAYMENT (
+			ID, PROJECT_ID, AMOUNT_MINOR, CURRENCY, PAID_AT
+		) VALUES (1, 1, 5000, 'USD', ?);
+		PRAGMA user_version = 1;
+	`, legacyPaidAt); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CHANKAT_DATA_PATH", path)
+	stor, err := storage.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stor.Close() })
+	if err := stor.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	var got int64
+	if err := stor.QueryRow(
+		`SELECT PAID_FOR_DATE FROM PAYMENT WHERE ID = 1`,
+	).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != paidAt {
+		t.Fatalf("paid-for compatibility date = %d, want %d", got, paidAt)
+	}
+}
+
+func TestMigrationReplacesExistingPaymentAccountingDate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "version-two.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		paidFor = int64(1_704_067_200)
+	)
+	legacyPaidAt := time.Date(2024, 2, 1, 0, 0, 0, 0, time.Local).Unix()
+	paidAt := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC).Unix()
+	if _, err := db.Exec(`
+		CREATE TABLE PAYMENT (
+			ID INTEGER PRIMARY KEY,
+			PROJECT_ID INTEGER NOT NULL,
+			AMOUNT_MINOR INTEGER NOT NULL,
+			CURRENCY TEXT NOT NULL,
+			PAID_AT INTEGER NOT NULL,
+			PAID_FOR_DATE INTEGER NOT NULL DEFAULT 0,
+			NOTES TEXT NOT NULL DEFAULT ''
+		);
+		INSERT INTO PAYMENT (
+			ID, PROJECT_ID, AMOUNT_MINOR, CURRENCY, PAID_AT, PAID_FOR_DATE
+			) VALUES (1, 1, 5000, 'USD', ?, ?);
+			PRAGMA user_version = 2;
+	`, legacyPaidAt, paidFor); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("CHANKAT_DATA_PATH", path)
+	stor, err := storage.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stor.Close() })
+	if err := stor.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	var got int64
+	if err := stor.QueryRow(
+		`SELECT PAID_FOR_DATE FROM PAYMENT WHERE ID = 1`,
+	).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != paidAt {
+		t.Fatalf("migrated compatibility date = %d, want %d", got, paidAt)
+	}
+}
 
 func TestOpenAndMigrate(t *testing.T) {
 	t.Setenv("CHANKAT_DATA_PATH", "")

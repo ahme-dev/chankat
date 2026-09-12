@@ -50,6 +50,15 @@ func TestFormatMoney(t *testing.T) {
 
 }
 
+func TestFormatBalance(t *testing.T) {
+	if got := FormatBalance(5_000, "USD"); got != "$50.00 outstanding" {
+		t.Fatalf("positive balance = %q", got)
+	}
+	if got := FormatBalance(-5_000, "USD"); got != "$50.00 credit" {
+		t.Fatalf("negative balance = %q", got)
+	}
+}
+
 func TestFormatDate(t *testing.T) {
 	value := time.Date(2026, 7, 20, 12, 30, 0, 0, time.UTC)
 	if got := FormatDate(value); got != "2026-07-20" {
