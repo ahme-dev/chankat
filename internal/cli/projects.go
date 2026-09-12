@@ -65,11 +65,15 @@ func (r runner) listProjects(args []string) error {
 	}
 	rows := make([]string, len(output))
 	for i, item := range output {
-		rows[i] = fmt.Sprintf("%d\t%s\t%d\t%s\t%s\t%v", item.ID, item.Name,
+		rows[i] = fmt.Sprintf("%d\t%s\t%d\t%s\t%s\t%s\t%s\t%s", item.ID, item.Name,
 			item.RateID, item.RateName, formatTracked(item.TrackedSeconds),
-			item.BalanceMinor)
+			formatMinorMap(item.EarnedMinor), formatMinorMap(item.PaidMinor),
+			formatMinorMap(item.BalanceMinor))
 	}
-	return r.table("ID\tNAME\tRATE_ID\tRATE\tTRACKED\tBALANCE_MINOR", rows)
+	return r.table(
+		"ID\tNAME\tCURRENT_RATE_ID\tCURRENT_RATE\tTRACKED\tEARNED_MINOR\tPAID_MINOR\tBALANCE_MINOR",
+		rows,
+	)
 }
 
 func (r runner) getProject(args []string) error {
@@ -90,10 +94,11 @@ func (r runner) getProject(args []string) error {
 			if r.json {
 				return r.writeJSON(output)
 			}
-			return r.table("ID\tNAME\tRATE_ID\tRATE\tTRACKED\tBALANCE_MINOR",
-				[]string{fmt.Sprintf("%d\t%s\t%d\t%s\t%s\t%v", output.ID,
+			return r.table("ID\tNAME\tCURRENT_RATE_ID\tCURRENT_RATE\tTRACKED\tEARNED_MINOR\tPAID_MINOR\tBALANCE_MINOR",
+				[]string{fmt.Sprintf("%d\t%s\t%d\t%s\t%s\t%s\t%s\t%s", output.ID,
 					output.Name, output.RateID, output.RateName,
-					formatTracked(output.TrackedSeconds), output.BalanceMinor)})
+					formatTracked(output.TrackedSeconds), formatMinorMap(output.EarnedMinor),
+					formatMinorMap(output.PaidMinor), formatMinorMap(output.BalanceMinor))})
 		}
 	}
 	return fmt.Errorf("project %d not found", id)

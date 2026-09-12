@@ -14,19 +14,22 @@ type ProjectSummary struct {
 	Project
 	Rate         Rate
 	BalanceMinor map[string]int64
+	EarnedMinor  map[string]int64
+	PaidMinor    map[string]int64
 	Tracked      time.Duration
 }
 
 type TaskSummary struct {
 	Task
-	Project        Project
-	Rate           Rate
-	RateOverridden bool
-	Active         bool
-	LastEndedAt    *time.Time
-	LastEntryID    int
-	Tracked        time.Duration
-	EarnedMinor    map[string]int64
+	Project         Project
+	Rate            Rate
+	RateOverridden  bool
+	Active          bool
+	LastEndedAt     *time.Time
+	LastEntryID     int
+	Tracked         time.Duration
+	EarnedMinor     map[string]int64
+	HistoricalRates []Rate
 }
 
 func SummarizeRates(rates []Rate, projects []Project) []RateSummary {
@@ -52,20 +55,17 @@ func SummarizeProjects(
 	balances := make(map[int]map[string]int64, len(projects))
 	minorSeconds := make(map[int]map[string]int64, len(projects))
 	tracked := make(map[int]time.Duration, len(projects))
+	paid := make(map[int]map[string]int64, len(projects))
 	for _, project := range projects {
 		balances[project.ID] = make(map[string]int64)
 		if rate, ok := ratesByID[project.RateID]; ok {
 			balances[project.ID][rate.Currency] = 0
 		}
 		minorSeconds[project.ID] = make(map[string]int64)
+		paid[project.ID] = make(map[string]int64)
 	}
 	for _, entry := range entries {
-		if entry.ProjectID == nil || entry.RateID == nil {
-			continue
-		}
-		rate, rateOK := ratesByID[*entry.RateID]
-		_, projectOK := balances[*entry.ProjectID]
-		if !rateOK || !projectOK {
+		if entry.ProjectID == nil || balances[*entry.ProjectID] == nil {
 			continue
 		}
 		endedAt := now
@@ -77,6 +77,13 @@ func SummarizeProjects(
 		}
 		elapsed := nonNegativeDuration(entry.StartedAt, endedAt)
 		tracked[*entry.ProjectID] += elapsed
+		if entry.RateID == nil {
+			continue
+		}
+		rate, rateOK := ratesByID[*entry.RateID]
+		if !rateOK {
+			continue
+		}
 		minorSeconds[*entry.ProjectID][rate.Currency] +=
 			int64(rate.AmountMinor) * int64(elapsed/time.Second)
 	}
@@ -94,6 +101,7 @@ func SummarizeProjects(
 			continue
 		}
 		if balances[payment.ProjectID] != nil {
+			paid[payment.ProjectID][payment.Currency] += int64(payment.AmountMinor)
 			balances[payment.ProjectID][payment.Currency] -= int64(payment.AmountMinor)
 		}
 	}
@@ -104,6 +112,8 @@ func SummarizeProjects(
 			Project:      project,
 			Rate:         ratesByID[project.RateID],
 			BalanceMinor: balances[project.ID],
+			EarnedMinor:  minorSecondsToAmounts(minorSeconds[project.ID]),
+			PaidMinor:    paid[project.ID],
 			Tracked:      tracked[project.ID],
 		}
 	}
@@ -134,9 +144,15 @@ func SummarizeTasks(
 		var lastEndedAt *time.Time
 		lastEntryID := 0
 		active := false
+		historicalRates := make(map[int]Rate)
 		for _, entry := range entries {
 			if entry.TaskID == nil || *entry.TaskID != task.ID {
 				continue
+			}
+			if entry.RateID != nil {
+				if rate, ok := ratesByID[*entry.RateID]; ok {
+					historicalRates[rate.ID] = rate
+				}
 			}
 			if entry.EndedAt == nil {
 				active = true
@@ -156,6 +172,12 @@ func SummarizeTasks(
 			LastEndedAt: lastEndedAt, LastEntryID: lastEntryID,
 			Tracked: tracked, EarnedMinor: earned,
 		}
+		for _, rate := range historicalRates {
+			result[i].HistoricalRates = append(result[i].HistoricalRates, rate)
+		}
+		sort.Slice(result[i].HistoricalRates, func(a, b int) bool {
+			return result[i].HistoricalRates[a].ID < result[i].HistoricalRates[b].ID
+		})
 	}
 	return result
 }
@@ -173,7 +195,7 @@ func TaskTotals(
 			continue
 		}
 		endedAt := now
-		if entry.EndedAt != nil {
+		if entry.EndedAt != nil && (now.IsZero() || entry.EndedAt.Before(now)) {
 			endedAt = *entry.EndedAt
 		} else if now.IsZero() {
 			continue

@@ -24,6 +24,8 @@ type projectOutput struct {
 	RateName       string           `json:"rate_name"`
 	TrackedSeconds int64            `json:"tracked_seconds"`
 	BalanceMinor   map[string]int64 `json:"balance_minor"`
+	EarnedMinor    map[string]int64 `json:"earned_minor"`
+	PaidMinor      map[string]int64 `json:"paid_minor"`
 }
 
 type taskOutput struct {
@@ -36,6 +38,8 @@ type taskOutput struct {
 	RateAmountMinor int              `json:"rate_amount_minor"`
 	RateCurrency    string           `json:"rate_currency"`
 	RateOverridden  bool             `json:"rate_overridden"`
+	Archived        bool             `json:"archived"`
+	HistoricalRates []rateOutput     `json:"historical_rates"`
 	Active          bool             `json:"active"`
 	LastEndedAt     *string          `json:"last_ended_at"`
 	TrackedSeconds  int64            `json:"tracked_seconds"`
@@ -120,6 +124,8 @@ func projectOutputs(items []storage.ProjectSummary) []projectOutput {
 			RateName:       item.Rate.Name,
 			TrackedSeconds: int64(item.Tracked / time.Second),
 			BalanceMinor:   item.BalanceMinor,
+			EarnedMinor:    item.EarnedMinor,
+			PaidMinor:      item.PaidMinor,
 		}
 	}
 	return result
@@ -138,10 +144,17 @@ func taskOutputs(items []storage.TaskSummary) []taskOutput {
 			ProjectName: item.Project.Name, RateID: item.Rate.ID,
 			RateName: item.Rate.Name, RateAmountMinor: item.Rate.AmountMinor,
 			RateCurrency: item.Rate.Currency, RateOverridden: item.RateOverridden,
+			Archived: item.Archived, HistoricalRates: make([]rateOutput, 0),
 			Active:         item.Active,
 			LastEndedAt:    lastEndedAt,
 			TrackedSeconds: int64(item.Tracked / time.Second),
 			EarnedMinor:    item.EarnedMinor,
+		}
+		for _, rate := range item.HistoricalRates {
+			result[i].HistoricalRates = append(result[i].HistoricalRates, rateOutput{
+				ID: rate.ID, Name: rate.Name,
+				AmountMinor: rate.AmountMinor, Currency: rate.Currency,
+			})
 		}
 	}
 	return result

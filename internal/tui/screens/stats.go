@@ -520,7 +520,7 @@ func loadStats(ctx context.Context, stor *storage.Storage) tea.Cmd {
 		if err != nil {
 			return statsFailedMsg{err}
 		}
-		tasks, err := stor.GetTasks(ctx)
+		tasks, err := stor.GetTasksIncludingArchived(ctx)
 		if err != nil {
 			return statsFailedMsg{err}
 		}

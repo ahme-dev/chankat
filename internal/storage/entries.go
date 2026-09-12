@@ -32,7 +32,9 @@ const selectEntries = `
 	SELECT
 		ID AS id,
 		TASK_ID AS task_id,
-		PROJECT_ID AS project_id,
+		CASE WHEN TASK_ID IS NOT NULL THEN
+			(SELECT PROJECT_ID FROM TASK WHERE TASK.ID = ENTRY.TASK_ID)
+			ELSE PROJECT_ID END AS project_id,
 		RATE_ID AS rate_id,
 		STARTED_AT AS started_at,
 		ENDED_AT AS ended_at,

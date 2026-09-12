@@ -32,7 +32,8 @@ func TestProjectItems(t *testing.T) {
 	for _, expected := range []string{
 		"$30.00 outstanding",
 		"1h 00m tracked",
-		"Standard Rate · $50.00/h",
+		"Current rate: Standard · $50.00/h",
+		"$50.00 earned", "$20.00 paid",
 	} {
 		if !strings.Contains(description, expected) {
 			t.Fatalf("description %q does not contain %q", description, expected)

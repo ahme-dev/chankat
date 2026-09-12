@@ -101,12 +101,13 @@ var commandSpecs = map[string]resourceSpec{
 		},
 	},
 	"tasks": {
-		actions: []string{"list", "get", "create", "update", "delete", "start", "stop"},
+		actions: []string{"list", "get", "create", "update", "delete", "restore", "start", "stop"},
 		commands: map[string]commandSpec{
 			"list": {
-				usage: "chankat tasks list [--active]",
+				usage: "chankat tasks list [--active] [--archived]",
 				options: []optionSpec{
 					{name: "active", boolean: true},
+					{name: "archived", boolean: true},
 				},
 			},
 			"get": {
@@ -136,6 +137,7 @@ var commandSpecs = map[string]resourceSpec{
 			"delete": {
 				usage: "chankat tasks delete ID", positional: completeTaskID,
 			},
+			"restore": {usage: "chankat tasks restore ID"},
 			"start": {
 				usage:      "chankat tasks start ID [--at TIME]",
 				positional: completeTaskID,

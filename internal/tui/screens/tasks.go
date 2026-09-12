@@ -955,7 +955,7 @@ func (m Dashboard) Actions() string {
 			"[x/delete] delete time  [t] edit task  [esc] back"
 	}
 	return "[/] search  [n] new & track  [a] add past task  " +
-		"[enter] details  [e] edit task  [x/delete] delete  " +
+		"[enter] details  [e] edit task  [x/delete] archive  " +
 		"[space] start/pause  [f] filters  [F] reset filters  " +
 		"[shift+up/down or K/J] period  " +
 		"[shift+left/right or H/L] move"
@@ -1048,13 +1048,7 @@ func (m Dashboard) openSelectedTaskForm(deleteTask bool) (Dashboard, tea.Cmd) {
 	}
 	var form *components.Form[taskItem]
 	if deleteTask {
-		form = components.NewDeleteForm[taskItem](
-			m.ctx,
-			task.Name,
-			func(ctx context.Context) error {
-				return m.stor.DeleteTask(ctx, task.ID)
-			},
-		)
+		form = archiveTaskForm(m.ctx, m.stor, task)
 	} else {
 		var err error
 		form, err = taskForm(
@@ -1150,6 +1144,10 @@ func (m Dashboard) detailView() string {
 	duration, amounts := taskTotals(m.filteredEntries(), m.rates, task.ID, m.now)
 	rate, overridden := effectiveTaskRate(task, m.projectList, m.rates)
 	summary := project
+	for _, item := range storage.SummarizeTasks([]storage.Task{task}, m.projectList,
+		m.filteredEntries(), mapRates(m.rates), m.now) {
+		summary += formatHistoricalRates(item.HistoricalRates)
+	}
 	if rate.ID != 0 {
 		summary += " · " + formatTaskRate(rate, overridden)
 	}
@@ -1233,13 +1231,7 @@ func newTaskPage(
 			return taskForm(ctx, stor, &item.task, values.projects, values.rates)
 		},
 		Delete: func(item taskItem) *components.Form[taskItem] {
-			return components.NewDeleteForm[taskItem](
-				ctx,
-				item.task.Name,
-				func(ctx context.Context) error {
-					return stor.DeleteTask(ctx, item.task.ID)
-				},
-			)
+			return archiveTaskForm(ctx, stor, item.task)
 		},
 		AfterSave: afterSave,
 	}
@@ -1340,6 +1332,7 @@ func summarizedTaskItems(
 	items := make([]taskItem, 0, len(ordered))
 	for _, summary := range ordered {
 		description := summary.Project.Name
+		description += formatHistoricalRates(summary.HistoricalRates)
 		if summary.Rate.ID != 0 {
 			description += " · " + formatTaskRate(
 				summary.Rate, summary.RateOverridden,
@@ -1399,11 +1392,25 @@ func formatTaskRate(rate storage.Rate, overridden bool) string {
 		source = "task rate"
 	}
 	return fmt.Sprintf(
-		"%s · %s/hour (%s)",
+		"Next rate: %s · %s/hour (%s)",
 		rate.Name,
 		components.FormatMoney(int64(rate.AmountMinor), rate.Currency),
 		source,
 	)
+}
+
+func formatHistoricalRates(rates []storage.Rate) string {
+	if len(rates) == 0 {
+		return ""
+	}
+	parts := make([]string, len(rates))
+	for i, rate := range rates {
+		parts[i] = fmt.Sprintf(
+			"%s %s/hour", rate.Name,
+			components.FormatMoney(int64(rate.AmountMinor), rate.Currency),
+		)
+	}
+	return " · Used: " + strings.Join(parts, ", ")
 }
 
 func effectiveTaskRate(
@@ -1453,6 +1460,33 @@ func taskForm(
 			return stor.UpdateTask(ctx, value)
 		},
 	), nil
+}
+
+func archiveTaskForm(
+	ctx context.Context,
+	stor *storage.Storage,
+	task storage.Task,
+) *components.Form[taskItem] {
+	confirmed := false
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().
+			Title("Archive " + task.Name + "?").
+			Description("Stops running timers and preserves time entries and earnings.").
+			Affirmative("Archive").
+			Negative("Cancel").
+			Value(&confirmed),
+	))
+	return components.NewForm[taskItem](
+		ctx,
+		"archive task",
+		form,
+		func(ctx context.Context) error {
+			if !confirmed {
+				return nil
+			}
+			return stor.DeleteTask(ctx, task.ID)
+		},
+	)
 }
 
 func historicalTaskForm(
@@ -1591,6 +1625,7 @@ func optionalTaskRateID(rateID int) *int {
 type entryItem struct {
 	entry storage.Entry
 	now   time.Time
+	rate  storage.Rate
 }
 
 type entryMeta struct {
@@ -1611,6 +1646,14 @@ func (e entryItem) Description() string {
 		endedAt = *e.entry.EndedAt
 	}
 	description := components.FormatDuration(endedAt.Sub(e.entry.StartedAt))
+	if e.rate.ID != 0 {
+		description += fmt.Sprintf(
+			" · %s %s/hour", e.rate.Name,
+			components.FormatMoney(int64(e.rate.AmountMinor), e.rate.Currency),
+		)
+	} else {
+		description += " · Rate unavailable"
+	}
 	if e.entry.Note != "" {
 		description += " · " + e.entry.Note
 	}
@@ -1645,7 +1688,18 @@ func newEntryPage(
 				!filter.Period.Start.IsZero() || !filter.Period.End.IsZero()) {
 				entries = entriesOverlappingPeriod(entries, filter.Period, now)
 			}
-			return entryItems(entries, task.ID, now), entryMeta{task: task}, nil
+			rates, err := stor.GetRates(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			items := entryItems(entries, task.ID, now)
+			byID := storage.RatesByID(rates)
+			for i := range items {
+				if items[i].entry.RateID != nil {
+					items[i].rate = byID[*items[i].entry.RateID]
+				}
+			}
+			return items, entryMeta{task: task}, nil
 		},
 		Create: func(meta any) (*components.Form[entryItem], error) {
 			values := meta.(entryMeta)

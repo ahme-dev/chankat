@@ -13,18 +13,29 @@ type Task struct {
 	Name      string `db:"name"`
 	ProjectID int    `db:"project_id"`
 	RateID    *int   `db:"rate_id"`
+	Archived  bool   `db:"archived"`
 }
 
 func (s *Storage) GetTasks(ctx context.Context) ([]Task, error) {
+	return s.getTasks(ctx, false)
+}
+
+// GetTasksIncludingArchived keeps historical task names available to reports.
+func (s *Storage) GetTasksIncludingArchived(ctx context.Context) ([]Task, error) {
+	return s.getTasks(ctx, true)
+}
+
+func (s *Storage) getTasks(ctx context.Context, includeArchived bool) ([]Task, error) {
 	const query = `
 		SELECT ID AS id, NAME AS name, PROJECT_ID AS project_id,
-			RATE_ID AS rate_id
+			RATE_ID AS rate_id, ARCHIVED AS archived
 		FROM TASK
+		WHERE ARCHIVED = 0 OR $1
 		ORDER BY ID
 	`
 
 	tasks := make([]Task, 0)
-	if err := s.db.SelectContext(ctx, &tasks, query); err != nil {
+	if err := s.db.SelectContext(ctx, &tasks, query, includeArchived); err != nil {
 		return nil, fmt.Errorf("query tasks: %w", err)
 	}
 	return tasks, nil
@@ -33,7 +44,7 @@ func (s *Storage) GetTasks(ctx context.Context) ([]Task, error) {
 func (s *Storage) GetTask(ctx context.Context, id int) (Task, error) {
 	const query = `
 		SELECT ID AS id, NAME AS name, PROJECT_ID AS project_id,
-			RATE_ID AS rate_id
+			RATE_ID AS rate_id, ARCHIVED AS archived
 		FROM TASK
 		WHERE ID = $1
 	`
@@ -200,7 +211,7 @@ func (s *Storage) CreateEntryForTaskID(
 			COALESCE(TASK.RATE_ID, PROJECT.RATE_ID) AS rate_id
 		FROM TASK
 		JOIN PROJECT ON PROJECT.ID = TASK.PROJECT_ID
-		WHERE TASK.ID = $1
+		WHERE TASK.ID = $1 AND TASK.ARCHIVED = 0
 	`, taskID); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, fmt.Errorf("task %d not found", taskID)
@@ -300,6 +311,8 @@ func (s *Storage) PauseAllTasks(
 	return len(taskIDs), nil
 }
 
+// UpdateTask moves attached work with the task via task_project_changed.
+// The trigger runs inside this statement's transaction and leaves rates intact.
 func (s *Storage) UpdateTask(ctx context.Context, task Task) error {
 	name, err := NormalizeName(task.Name, "name")
 	if err != nil {
@@ -327,6 +340,8 @@ func (s *Storage) UpdateTask(ctx context.Context, task Task) error {
 	return nil
 }
 
+// DeleteTask retains its legacy name for callers; it archives the task and
+// stops its timers while preserving the task/entry relationship.
 func (s *Storage) DeleteTask(ctx context.Context, id int) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -335,12 +350,18 @@ func (s *Storage) DeleteTask(ctx context.Context, id int) error {
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(
 		ctx,
-		`UPDATE ENTRY SET TASK_ID = NULL WHERE TASK_ID = $1`,
-		id,
+		`
+			UPDATE ENTRY
+			SET ENDED_AT = MAX(STARTED_AT + 1, $2)
+			WHERE TASK_ID = $1 AND ENDED_AT IS NULL
+		`,
+		id, time.Now().Unix(),
 	); err != nil {
-		return fmt.Errorf("detach task entries: %w", err)
+		return fmt.Errorf("stop archived task entries: %w", err)
 	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM TASK WHERE ID = $1`, id)
+	result, err := tx.ExecContext(ctx, `
+		UPDATE TASK SET ARCHIVED = 1 WHERE ID = $1 AND ARCHIVED = 0
+	`, id)
 	if err != nil {
 		return fmt.Errorf("delete task: %w", err)
 	}
@@ -363,4 +384,25 @@ func (s *Storage) AssignTasksToProject(
 	projectID int,
 ) error {
 	return s.bulkAssign(ctx, "TASK", "PROJECT_ID", projectID, taskIDs)
+}
+
+func (s *Storage) RestoreTask(ctx context.Context, id int) error {
+	const query = `
+		UPDATE TASK
+		SET ARCHIVED = 0
+		WHERE ID = $1 AND ARCHIVED = 1
+	`
+
+	result, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("restore task: %w", err)
+	}
+	restored, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get restored task count: %w", err)
+	}
+	if restored == 0 {
+		return fmt.Errorf("archived task %d not found", id)
+	}
+	return nil
 }
