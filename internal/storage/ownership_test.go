@@ -206,11 +206,15 @@ func TestLedgerBreakdownKeepsCreditsCurrenciesAndRounding(t *testing.T) {
 		[]storage.Rate{{ID: usdID, AmountMinor: 101, Currency: "USD"}, {ID: eurID, AmountMinor: 3, Currency: "EUR"}},
 		entries, payments, start.Add(30*time.Minute))[0]
 	if got.EarnedMinor["USD"] != 50 || got.PaidMinor["USD"] != 50 || got.BalanceMinor["USD"] != 0 ||
-		got.EarnedMinor["EUR"] != 1 || got.PaidMinor["EUR"] != 100 || got.BalanceMinor["EUR"] != -99 {
+		got.EarnedMinor["EUR"] != 1 || got.PaidMinor["EUR"] != 100 || got.BalanceMinor["EUR"] != 0 {
 		t.Fatalf("ledger = %#v", got)
 	}
 	for currency, balance := range got.BalanceMinor {
-		if got.EarnedMinor[currency]-got.PaidMinor[currency] != balance {
+		want := got.EarnedMinor[currency] - got.PaidMinor[currency]
+		if want < 0 {
+			want = 0
+		}
+		if want != balance {
 			t.Fatalf("unreconciled %s", currency)
 		}
 	}

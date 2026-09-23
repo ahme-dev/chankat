@@ -61,7 +61,7 @@ func TestSummaries(t *testing.T) {
 	}
 }
 
-func TestProjectBalanceCarriesPrepaymentForward(t *testing.T) {
+func TestProjectRemainingBalanceDoesNotGoBelowZero(t *testing.T) {
 	projectID, rateID := 1, 1
 	startedAt := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
 	endedAt := startedAt.Add(time.Hour)
@@ -79,7 +79,44 @@ func TestProjectBalanceCarriesPrepaymentForward(t *testing.T) {
 		}},
 		paidAt,
 	)
-	if got := summaries[0].BalanceMinor["USD"]; got != -5_000 {
-		t.Fatalf("balance = %d, want 5000 credit", got)
+	if got := summaries[0].BalanceMinor["USD"]; got != 0 {
+		t.Fatalf("balance = %d, want zero", got)
+	}
+}
+
+func TestProjectRemainingUsesHistoricalRatesBeforeClampingCredits(t *testing.T) {
+	projectID, taskID, oldRateID, newRateID := 1, 1, 1, 2
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	oldWorkEnd := cutoff.Add(-time.Minute)
+	newWorkEnd := cutoff.Add(29 * time.Minute)
+
+	summaries := storage.SummarizeProjects(
+		[]storage.Project{{ID: projectID, RateID: newRateID}},
+		[]storage.Rate{
+			{ID: oldRateID, AmountMinor: 6_000, Currency: "USD"},
+			{ID: newRateID, AmountMinor: 12_000, Currency: "USD"},
+		},
+		[]storage.Entry{
+			{
+				TaskID: &taskID, ProjectID: &projectID, RateID: &oldRateID,
+				StartedAt: oldWorkEnd.Add(-29 * time.Minute), EndedAt: &oldWorkEnd,
+			},
+			{
+				TaskID: &taskID, ProjectID: &projectID, RateID: &newRateID,
+				StartedAt: cutoff, EndedAt: &newWorkEnd,
+			},
+		},
+		[]storage.Payment{
+			{ProjectID: projectID, AmountMinor: 5_000, Currency: "USD", PaidAt: cutoff},
+			{ProjectID: projectID, AmountMinor: 4_000, Currency: "USD", PaidAt: cutoff},
+		},
+		newWorkEnd,
+	)
+
+	got := summaries[0]
+	// 29 minutes at $60/hour plus 29 minutes at $120/hour = $87.
+	if got.EarnedMinor["USD"] != 8_700 || got.PaidMinor["USD"] != 9_000 ||
+		got.BalanceMinor["USD"] != 0 {
+		t.Fatalf("ledger = %#v", got)
 	}
 }

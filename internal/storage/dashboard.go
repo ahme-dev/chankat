@@ -52,7 +52,7 @@ type dashboardProjectTotals struct {
 }
 
 // SummarizeDashboard reports work and receipts in the half-open interval
-// [start, end). BalanceMinor is the current project ledger balance through now,
+// [start, end). BalanceMinor is max(total earned - total paid, 0) through now,
 // independent of the selected interval. A zero start means there is no lower
 // bound. Active entries stop at now.
 func SummarizeDashboard(
@@ -81,11 +81,16 @@ func SummarizeDashboard(
 	} else if !end.IsZero() {
 		periodLocation = end.Location()
 	}
-	balances := make(map[int]map[string]int64, len(projects))
-	for _, project := range SummarizeProjects(
+	projectSummaries := SummarizeProjects(
 		projects, rates, entries, payments, now,
-	) {
+	)
+	balances := make(map[int]map[string]int64, len(projects))
+	currentEarned := make(map[string]int64)
+	currentPaid := make(map[string]int64)
+	for _, project := range projectSummaries {
 		balances[project.ID] = project.BalanceMinor
+		addAmounts(currentEarned, project.EarnedMinor)
+		addAmounts(currentPaid, project.PaidMinor)
 	}
 
 	projectTotals := func(projectID int) *dashboardProjectTotals {
@@ -173,11 +178,16 @@ func SummarizeDashboard(
 		NetMinor:     make(map[string]int64),
 		BalanceMinor: make(map[string]int64),
 	}
+	projectMinorSeconds := make(map[int]map[string]int64, len(totals))
+	for projectID, totals := range totals {
+		projectMinorSeconds[projectID] = totals.minorSeconds
+	}
+	projectAmounts := groupedMinorSecondsToAmounts(projectMinorSeconds)
 	for projectID, totals := range totals {
 		project := DashboardProjectSummary{
 			ProjectName:  totals.name,
 			Tracked:      totals.tracked,
-			EarnedMinor:  minorSecondsToAmounts(totals.minorSeconds),
+			EarnedMinor:  projectAmounts[projectID],
 			PaidMinor:    cloneAmounts(totals.paid),
 			BalanceMinor: cloneAmounts(balances[projectID]),
 		}
@@ -222,9 +232,7 @@ func SummarizeDashboard(
 		result.Projects = append(result.Projects, project)
 	}
 	result.NetMinor = subtractAmounts(result.EarnedMinor, result.PaidMinor)
-	for _, balance := range balances {
-		addAmounts(result.BalanceMinor, balance)
-	}
+	result.BalanceMinor = remainingAmounts(currentEarned, currentPaid)
 	sort.Slice(result.Projects, func(i, j int) bool {
 		if result.Projects[i].Tracked != result.Projects[j].Tracked {
 			return result.Projects[i].Tracked > result.Projects[j].Tracked
@@ -381,6 +389,16 @@ func subtractAmounts(left, right map[string]int64) map[string]int64 {
 	result := cloneAmounts(left)
 	for currency, value := range right {
 		result[currency] -= value
+	}
+	return result
+}
+
+func remainingAmounts(earned, credited map[string]int64) map[string]int64 {
+	result := subtractAmounts(earned, credited)
+	for currency, amount := range result {
+		if amount < 0 {
+			result[currency] = 0
+		}
 	}
 	return result
 }

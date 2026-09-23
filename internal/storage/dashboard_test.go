@@ -91,7 +91,7 @@ func TestSummarizeDashboardKeepsCurrenciesSeparate(t *testing.T) {
 	}
 }
 
-func TestSummarizeDashboardUsesStableProjectRounding(t *testing.T) {
+func TestSummarizeDashboardRoundsAfterProjectAggregation(t *testing.T) {
 	start := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
 	project1, project2, rateID := 1, 2, 1
@@ -107,8 +107,8 @@ func TestSummarizeDashboardUsesStableProjectRounding(t *testing.T) {
 		},
 		nil, start, end, end,
 	)
-	if got.EarnedMinor["USD"] != 0 {
-		t.Fatalf("earned = %v, want project-rounded total", got.EarnedMinor)
+	if got.EarnedMinor["USD"] != 1 {
+		t.Fatalf("earned = %v, want aggregate-rounded total", got.EarnedMinor)
 	}
 	var projectTotal int64
 	for _, project := range got.Projects {
@@ -132,8 +132,45 @@ func TestSummarizeDashboardTreatsPaymentsAsCivilDates(t *testing.T) {
 		}},
 		start, start.AddDate(0, 0, 1), start.Add(12*time.Hour),
 	)
-	if got.PaidMinor["USD"] != 5_000 || got.BalanceMinor["USD"] != -5_000 {
+	if got.PaidMinor["USD"] != 5_000 || got.BalanceMinor["USD"] != 0 {
 		t.Fatalf("payment date shifted across zones: %#v", got)
+	}
+}
+
+func TestSummarizeDashboardRemainingUsesTotalCreditsBeforeClamping(t *testing.T) {
+	start := time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
+	end := start.Add(2 * time.Hour)
+	project1, project2, rateID := 1, 2, 1
+	got := storage.SummarizeDashboard(
+		[]storage.Project{
+			{ID: project1, Name: "Credited", RateID: rateID},
+			{ID: project2, Name: "Outstanding", RateID: rateID},
+		},
+		nil,
+		[]storage.Rate{{ID: rateID, AmountMinor: 10_000, Currency: "USD"}},
+		[]storage.Entry{
+			{ProjectID: &project1, RateID: &rateID, StartedAt: start,
+				EndedAt: timePointer(start.Add(time.Hour))},
+			{ProjectID: &project2, RateID: &rateID, StartedAt: start,
+				EndedAt: timePointer(start.Add(time.Hour))},
+		},
+		[]storage.Payment{{
+			ProjectID: project1, AmountMinor: 25_000,
+			Currency: "USD", PaidAt: start,
+		}},
+		start, end, end,
+	)
+
+	if got.EarnedMinor["USD"] != 20_000 || got.PaidMinor["USD"] != 25_000 ||
+		got.BalanceMinor["USD"] != 0 {
+		t.Fatalf("dashboard totals = %#v", got)
+	}
+	var projectRemaining int64
+	for _, project := range got.Projects {
+		projectRemaining += project.BalanceMinor["USD"]
+	}
+	if projectRemaining != 10_000 {
+		t.Fatalf("project remaining = %d, want 10000", projectRemaining)
 	}
 }
 
