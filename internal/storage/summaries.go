@@ -12,7 +12,8 @@ type RateSummary struct {
 
 type ProjectSummary struct {
 	Project
-	Rate         Rate
+	Rate Rate
+	// BalanceMinor is the non-negative amount still outstanding.
 	BalanceMinor map[string]int64
 	EarnedMinor  map[string]int64
 	PaidMinor    map[string]int64
@@ -52,20 +53,18 @@ func SummarizeProjects(
 	now time.Time,
 ) []ProjectSummary {
 	ratesByID := RatesByID(rates)
-	balances := make(map[int]map[string]int64, len(projects))
 	minorSeconds := make(map[int]map[string]int64, len(projects))
 	tracked := make(map[int]time.Duration, len(projects))
 	paid := make(map[int]map[string]int64, len(projects))
 	for _, project := range projects {
-		balances[project.ID] = make(map[string]int64)
-		if rate, ok := ratesByID[project.RateID]; ok {
-			balances[project.ID][rate.Currency] = 0
-		}
 		minorSeconds[project.ID] = make(map[string]int64)
+		if rate, ok := ratesByID[project.RateID]; ok {
+			minorSeconds[project.ID][rate.Currency] = 0
+		}
 		paid[project.ID] = make(map[string]int64)
 	}
 	for _, entry := range entries {
-		if entry.ProjectID == nil || balances[*entry.ProjectID] == nil {
+		if entry.ProjectID == nil || minorSeconds[*entry.ProjectID] == nil {
 			continue
 		}
 		endedAt := now
@@ -87,11 +86,7 @@ func SummarizeProjects(
 		minorSeconds[*entry.ProjectID][rate.Currency] +=
 			int64(rate.AmountMinor) * int64(elapsed/time.Second)
 	}
-	for projectID, currencies := range minorSeconds {
-		for currency, total := range currencies {
-			balances[projectID][currency] += total / 3600
-		}
-	}
+	earned := groupedMinorSecondsToAmounts(minorSeconds)
 	for _, payment := range payments {
 		paidAt := payment.PaidAt
 		if !now.IsZero() {
@@ -100,9 +95,8 @@ func SummarizeProjects(
 		if !now.IsZero() && paidAt.After(now) {
 			continue
 		}
-		if balances[payment.ProjectID] != nil {
+		if paid[payment.ProjectID] != nil {
 			paid[payment.ProjectID][payment.Currency] += int64(payment.AmountMinor)
-			balances[payment.ProjectID][payment.Currency] -= int64(payment.AmountMinor)
 		}
 	}
 
@@ -111,8 +105,8 @@ func SummarizeProjects(
 		result[i] = ProjectSummary{
 			Project:      project,
 			Rate:         ratesByID[project.RateID],
-			BalanceMinor: balances[project.ID],
-			EarnedMinor:  minorSecondsToAmounts(minorSeconds[project.ID]),
+			BalanceMinor: remainingAmounts(earned[project.ID], paid[project.ID]),
+			EarnedMinor:  earned[project.ID],
 			PaidMinor:    paid[project.ID],
 			Tracked:      tracked[project.ID],
 		}
