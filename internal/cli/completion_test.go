@@ -35,6 +35,7 @@ func TestStaticCompletion(t *testing.T) {
 		{args: []string{""}, want: []string{"dashboard", "rates", "completion", "--json"}},
 		{args: []string{"--json", "pro"}, want: []string{"projects"}},
 		{args: []string{"tasks", "cr"}, want: []string{"create"}},
+		{args: []string{"projects", "ex"}, want: []string{"export"}},
 		{args: []string{"completion", ""}, want: []string{"bash"}},
 		{
 			args: []string{"tasks", "create", "--"},
