@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"encoding/csv"
 	"fmt"
+	"strconv"
+	"time"
 
 	"chankat/internal/storage"
 )
@@ -21,12 +24,94 @@ func (r runner) runProjects(args []string) error {
 		return r.updateProject(args[1:])
 	case "delete":
 		return r.deleteProject(args[1:])
+	case "export":
+		return r.exportProject(args[1:])
 	case "help", "-h", "--help":
 		r.help([]string{"projects"})
 		return nil
 	default:
 		return fmt.Errorf("unknown projects command %q", args[0])
 	}
+}
+
+type projectExportRow struct {
+	TaskName       string  `json:"task_name"`
+	WorkingMinutes float64 `json:"working_minutes"`
+	StartedAt      string  `json:"started_at"`
+	EndedAt        string  `json:"ended_at"`
+}
+
+func (r runner) exportProject(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: chankat projects export ID")
+	}
+	projectID, err := parseID(args[0], "project")
+	if err != nil {
+		return err
+	}
+	if _, err := r.stor.GetProject(r.ctx, projectID); err != nil {
+		return err
+	}
+	tasks, err := r.stor.GetTasksIncludingArchived(r.ctx)
+	if err != nil {
+		return fmt.Errorf("export project tasks: %w", err)
+	}
+	taskNames := make(map[int]string)
+	for _, task := range tasks {
+		if task.ProjectID == projectID {
+			taskNames[task.ID] = task.Name
+		}
+	}
+	entries, err := r.stor.GetEntries(r.ctx)
+	if err != nil {
+		return fmt.Errorf("export project entries: %w", err)
+	}
+	rows := make([]projectExportRow, 0)
+	for _, entry := range entries {
+		if entry.TaskID == nil {
+			continue
+		}
+		name, ok := taskNames[*entry.TaskID]
+		if !ok {
+			continue
+		}
+		endedAt := entry.EndedAt
+		if endedAt == nil {
+			value := r.now()
+			endedAt = &value
+		}
+		elapsed := endedAt.Sub(entry.StartedAt)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		rows = append(rows, projectExportRow{
+			TaskName:       name,
+			WorkingMinutes: elapsed.Minutes(),
+			StartedAt:      entry.StartedAt.Format(time.RFC3339),
+			EndedAt:        endedAt.Format(time.RFC3339),
+		})
+	}
+	if r.json {
+		return r.writeJSON(rows)
+	}
+	writer := csv.NewWriter(r.out)
+	if err := writer.Write([]string{
+		"task_name", "working_minutes", "started_at", "ended_at",
+	}); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := writer.Write([]string{
+			row.TaskName,
+			strconv.FormatFloat(row.WorkingMinutes, 'f', 2, 64),
+			row.StartedAt,
+			row.EndedAt,
+		}); err != nil {
+			return err
+		}
+	}
+	writer.Flush()
+	return writer.Error()
 }
 
 func (r runner) loadProjects() ([]storage.ProjectSummary, error) {

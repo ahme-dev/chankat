@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -295,6 +297,52 @@ func TestCLIDashboardCustomPeriod(t *testing.T) {
 		got.BalanceMinor["USD"] != 0 || len(got.Projects) != 1 ||
 		got.Projects[0].BalanceMinor["USD"] != 0 {
 		t.Fatalf("dashboard = %#v", got)
+	}
+}
+
+func TestCLIExportsSingleProjectTaskEntries(t *testing.T) {
+	stor := cliStorage(t)
+	for _, args := range [][]string{
+		{"rates", "create", "--name", "Rate", "--amount-minor", "10000", "--currency", "USD"},
+		{"projects", "create", "--name", "Acme", "--rate", "1"},
+		{"projects", "create", "--name", "Other", "--rate", "1"},
+		{"tasks", "create", "--name", "Build, test", "--project", "1", "--started-at", "2026-08-03 09:00", "--ended-at", "2026-08-03 10:30"},
+		{"tasks", "start", "1", "--at", "2026-08-03 11:00"},
+		{"tasks", "create", "--name", "Archived", "--project", "1", "--started-at", "2026-08-02 15:00", "--ended-at", "2026-08-02 15:30"},
+		{"tasks", "delete", "2"},
+		{"tasks", "create", "--name", "Ignore", "--project", "2", "--started-at", "2026-08-03 09:00", "--ended-at", "2026-08-03 10:00"},
+	} {
+		runCLI(t, stor, args...)
+	}
+
+	now := time.Date(2026, 8, 3, 11, 45, 0, 0, time.Local)
+	output := runCLIAt(t, stor, now,
+		"projects", "export", "1")
+	records, err := csv.NewReader(strings.NewReader(output)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"task_name", "working_minutes", "started_at", "ended_at"},
+		{"Build, test", "90.00", localRFC3339(2026, 8, 3, 9, 0), localRFC3339(2026, 8, 3, 10, 30)},
+		{"Build, test", "45.00", localRFC3339(2026, 8, 3, 11, 0), localRFC3339(2026, 8, 3, 11, 45)},
+		{"Archived", "30.00", localRFC3339(2026, 8, 2, 15, 0), localRFC3339(2026, 8, 2, 15, 30)},
+	}
+	if !reflect.DeepEqual(records, want) {
+		t.Fatalf("export records = %#v, want %#v", records, want)
+	}
+}
+
+func localRFC3339(year int, month time.Month, day, hour, minute int) string {
+	return time.Date(year, month, day, hour, minute, 0, 0, time.Local).Format(time.RFC3339)
+}
+
+func TestCLIProjectExportRejectsMissingProject(t *testing.T) {
+	stor := cliStorage(t)
+	var out bytes.Buffer
+	err := RunIO(t.Context(), []string{"projects", "export", "99"}, "test", stor, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "project 99 not found") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -74,7 +74,7 @@ var commandSpecs = map[string]resourceSpec{
 		},
 	},
 	"projects": {
-		actions: []string{"list", "get", "create", "update", "delete"},
+		actions: []string{"list", "get", "create", "update", "delete", "export"},
 		commands: map[string]commandSpec{
 			"list": {usage: "chankat projects list"},
 			"get": {
@@ -97,6 +97,9 @@ var commandSpecs = map[string]resourceSpec{
 			},
 			"delete": {
 				usage: "chankat projects delete ID", positional: completeProjectID,
+			},
+			"export": {
+				usage: "chankat projects export ID", positional: completeProjectID,
 			},
 		},
 	},

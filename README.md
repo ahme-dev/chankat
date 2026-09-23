@@ -83,3 +83,12 @@ database untouched:
 make seed
 make run
 ```
+
+Export every tracked work interval for one project as CSV:
+
+```sh
+chankat projects export PROJECT_ID > project-tasks.csv
+```
+
+Each row contains the task name, working minutes, start time and end time.
+Archived tasks are included, and an active interval ends at the export time.
