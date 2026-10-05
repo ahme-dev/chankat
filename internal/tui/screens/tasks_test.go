@@ -65,7 +65,7 @@ func TestDashboardTasksByRecentEntry(t *testing.T) {
 	if got := len(items); got != 2 {
 		t.Fatalf("got %d tasks, want 2", got)
 	}
-	if got := items[0].Title(); got != "[>] one" {
+	if got := items[0].Title(); got != "one" {
 		t.Fatalf("got first recent task %q, want task one", got)
 	}
 	if got := items[0].Description(); !strings.Contains(got, "total 2h 00m") {
@@ -88,8 +88,7 @@ func TestTaskItemsDisplayEffectiveRate(t *testing.T) {
 		},
 	)
 	if len(items) != 2 ||
-		!strings.Contains(items[0].Description(), "$100.00/hour (project rate)") ||
-		!strings.Contains(items[1].Description(), "$150.00/hour (task rate)") {
+		items[0].rate.ID != 1 || items[1].rate.ID != 2 {
 		t.Fatalf("task rates not displayed: %#v", items)
 	}
 }
@@ -105,9 +104,19 @@ func TestHistoricalTaskDisplaysUsedRateSeparatelyFromNextRate(t *testing.T) {
 		StartedAt: end.Add(-time.Hour), EndedAt: &end}
 	items := taskItems([]storage.Task{{ID: taskID, Name: "Historical", ProjectID: projectID}},
 		[]storage.Project{{ID: projectID, Name: "Client", RateID: 2}}, []storage.Entry{entry}, rates)
+	if !strings.Contains(items[0].Description(), "$100.00 earned") || strings.Contains(items[0].Description(), "Used:") || strings.Contains(items[0].Description(), "Next rate:") {
+		t.Fatalf("task row should prioritize earned amount: %s", items[0].Description())
+	}
+	m := NewDashboard(t.Context(), nil)
+	m.now = end
+	m.detailTask = &items[0].task
+	m.projectList = []storage.Project{items[0].project}
+	m.projects = map[int]string{projectID: "Client"}
+	m.rates = storage.RatesByID(rates)
+	m.entries = []storage.Entry{entry}
 	for _, want := range []string{"Used: Old $100.00/hour", "Next rate: New", "$100.00 earned"} {
-		if !strings.Contains(items[0].Description(), want) {
-			t.Fatalf("missing %q: %s", want, items[0].Description())
+		if !strings.Contains(m.detailView(), want) {
+			t.Fatalf("missing %q in task details: %s", want, m.detailView())
 		}
 	}
 	row := entryItem{entry: entry, now: end, rate: rates[0]}
@@ -323,8 +332,8 @@ func TestDashboardResumedTaskTotals(t *testing.T) {
 	if !strings.Contains(view, "$75.00 earned") {
 		t.Fatalf("dashboard does not show cumulative amount:\n%s", view)
 	}
-	if !strings.Contains(view, "$50.00/hour") {
-		t.Fatalf("dashboard does not show active rate:\n%s", view)
+	if !strings.Contains(view, "● Running · task") || !strings.Contains(view, "session 0h 30m") || strings.Contains(view, "/hour") {
+		t.Fatalf("running row should prioritize session time:\n%s", view)
 	}
 }
 
@@ -629,5 +638,39 @@ func TestEntryRateOptions(t *testing.T) {
 		options[1].Value != 1 || options[2].Value != 2 ||
 		!strings.Contains(options[2].Key, "$200.00/hour") {
 		t.Fatalf("entry rate options = %#v", options)
+	}
+}
+
+func TestRunningTimersRemainVisibleInHistoricalProjectFilter(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	past := now.AddDate(0, 0, -1)
+	period, _ := storage.CurrentPeriod(storage.Day, past)
+	taskID, projectID, rateID := 1, 1, 1
+	end := past.Add(-time.Hour)
+	entries := []storage.Entry{
+		{ID: 1, TaskID: &taskID, ProjectID: &projectID, RateID: &rateID, StartedAt: end.Add(-time.Hour), EndedAt: &end},
+		{ID: 2, TaskID: &taskID, ProjectID: &projectID, RateID: &rateID, StartedAt: now.Add(-30 * time.Minute)},
+	}
+	m := NewDashboard(t.Context(), nil)
+	m.now, m.loading = now, false
+	m.entries = entries
+	m.tasks = map[int]string{taskID: "Running work"}
+	m.projects = map[int]string{projectID: "Other project"}
+	m.rates = map[int]storage.Rate{rateID: {ID: rateID, AmountMinor: 5000, Currency: "USD"}}
+	m.filter = &TaskListFilter{ProjectID: 2, Period: period}
+	m.refreshTables()
+	if len(m.activeItems) != 1 {
+		t.Fatal("historical project filter hid the running timer")
+	}
+	view := m.View()
+	for _, want := range []string{"Running work", "session 0h 30m", "period 1h 00m", "$50.00 earned"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q: %s", want, view)
+		}
+	}
+	items := taskItemsForFilter([]storage.Task{{ID: taskID, Name: "Running work", ProjectID: projectID}}, nil, entries, nil,
+		TaskListFilter{ProjectID: allProjectsFilter, Period: period}, now)
+	if len(items) != 0 {
+		t.Fatal("running task appeared among inactive historical tasks")
 	}
 }

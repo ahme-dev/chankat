@@ -2,6 +2,7 @@ package screens
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -22,13 +23,11 @@ type rateItem struct {
 }
 
 func (r rateItem) Title() string {
-	return r.Name + " Rate"
+	return r.Name + " · " + components.FormatMoney(int64(r.AmountMinor), r.Currency) + "/h"
 }
 
 func (r rateItem) Description() string {
-	return components.FormatMoney(int64(r.AmountMinor), r.Currency) +
-		"/h · " + r.Currency + " · " +
-		strconv.Itoa(r.projectCount) + " " +
+	return "Used by " + strconv.Itoa(r.projectCount) + " " +
 		plural(r.projectCount, "project")
 }
 
@@ -44,6 +43,9 @@ func rateItems(rates []storage.Rate, projects []storage.Project) []rateItem {
 			Rate: summary.Rate, projectCount: summary.ProjectCount,
 		}
 	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+	})
 	return items
 }
 
@@ -92,12 +94,12 @@ func rateForm(
 	stor *storage.Storage,
 	rate *storage.Rate,
 ) (*components.Form[rateItem], error) {
-	values := storage.Rate{}
-	amountMinor := ""
+	values := storage.Rate{Currency: "USD"}
+	amount := ""
 	action := "new"
 	if rate != nil {
 		values = *rate
-		amountMinor = strconv.Itoa(rate.AmountMinor)
+		amount = components.AmountInput(rate.AmountMinor, rate.Currency)
 		action = "edit"
 	}
 	form := huh.NewForm(huh.NewGroup(
@@ -106,15 +108,16 @@ func rateForm(
 			Value(&values.Name).
 			Validate(components.Required("name")),
 		huh.NewInput().
-			Title("Amount in minor units").
-			Value(&amountMinor).
-			Validate(components.NonNegativeAmount),
-		huh.NewInput().
 			Title("Currency").
 			Placeholder("USD").
 			CharLimit(3).
 			Value(&values.Currency).
 			Validate(components.CurrencyCode),
+		huh.NewInput().
+			Title("Amount").
+			Description("Enter a currency amount, e.g. 125.50 USD. Unsupported currencies use minor units.").
+			Value(&amount).
+			Validate(func(value string) error { _, err := components.ParseAmount(value, values.Currency); return err }),
 	)).WithShowHelp(true)
 
 	return components.NewForm[rateItem](
@@ -123,7 +126,7 @@ func rateForm(
 		form,
 		func(ctx context.Context) error {
 			values.Name = strings.TrimSpace(values.Name)
-			parsedAmount, err := components.ParseAmountMinor(amountMinor)
+			parsedAmount, err := components.ParseAmount(amount, values.Currency)
 			if err != nil {
 				return err
 			}

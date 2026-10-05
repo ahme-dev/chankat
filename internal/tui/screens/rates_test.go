@@ -18,7 +18,10 @@ func TestRateItems(t *testing.T) {
 		},
 	)
 
-	if got := items[0].Description(); got != "$50.00/h · USD · 2 projects" {
+	if got := items[0].Title(); got != "Standard · $50.00/h" {
+		t.Fatalf("got title %q", got)
+	}
+	if got := items[0].Description(); got != "Used by 2 projects" {
 		t.Fatalf("got description %q", got)
 	}
 }

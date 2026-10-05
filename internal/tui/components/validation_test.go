@@ -42,3 +42,36 @@ func TestEntryEndTimeUsesStorageRules(t *testing.T) {
 		t.Fatalf("optional end rejected as blank: %v", err)
 	}
 }
+
+func TestCurrencyAmountInput(t *testing.T) {
+	for _, tc := range []struct {
+		currency, input string
+		want            int
+	}{
+		{"USD", "125.50", 12550}, {" usd ", " 125.5 ", 12550},
+		{"EUR", "0.01", 1}, {"IQD", "125.501", 125501},
+		{"JPY", "125", 125}, {"KRW", "0", 0},
+		{"USD", "125", 12500}, {"XYZ", "125", 125},
+	} {
+		t.Run(tc.currency+tc.input, func(t *testing.T) {
+			got, err := ParseAmount(tc.input, tc.currency)
+			if err != nil || got != tc.want {
+				t.Fatalf("amount = %d, error = %v, want %d", got, err, tc.want)
+			}
+			got, err = ParseAmount(AmountInput(tc.want, tc.currency), tc.currency)
+			if err != nil || got != tc.want {
+				t.Fatalf("edit round trip = %d, %v", got, err)
+			}
+		})
+	}
+	for _, tc := range []struct{ currency, input string }{
+		{"USD", "-1"}, {"USD", "1.001"}, {"USD", "1e2"},
+		{"USD", "NaN"}, {"USD", "1,000.00"}, {"USD", "."},
+		{"JPY", "1.5"}, {"XYZ", "1.5"}, {"US1", "1"},
+		{"USD", "999999999999999999999999999.99"},
+	} {
+		if _, err := ParseAmount(tc.input, tc.currency); err == nil {
+			t.Errorf("accepted %q in %s", tc.input, tc.currency)
+		}
+	}
+}

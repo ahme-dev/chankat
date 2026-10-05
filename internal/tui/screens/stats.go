@@ -63,11 +63,11 @@ func (i statsProjectItem) Description() string {
 	if amounts := formatStatsAmounts(i.project.EarnedMinor); amounts != "" {
 		description += " · " + amounts + " earned"
 	}
-	if amounts := formatStatsAmounts(i.project.PaidMinor); amounts != "" {
-		description += " · " + amounts + " paid"
+	if balances := formatStatsBalances(i.project.BalanceMinor); balances != "" {
+		description += " · all-time " + balances
 	}
-	if amounts := formatStatsBalances(i.project.BalanceMinor); amounts != "" {
-		description += " · current " + amounts
+	if amounts := formatStatsAmounts(i.project.PaidMinor); amounts != "" {
+		description += " · " + amounts + " received in period"
 	}
 	return description
 }
@@ -209,27 +209,28 @@ func (m Stats) View() string {
 	if m.err != nil {
 		return "Error: " + m.err.Error() + ". Press 'r' to retry."
 	}
-	return m.headerView() + "\n\n" + m.list.View()
+	view := m.headerView() + "\n\n" + m.list.View()
+	if chart := m.timelineChartView(lipgloss.Height(m.headerView())); chart != "" {
+		view += "\n\nTracked over time by project (hours)\n" + chart
+	}
+	return view
 }
 
 func (m Stats) headerView() string {
 	var b strings.Builder
-	b.WriteString(m.period.Label())
+	b.WriteString("Period: " + m.period.Label())
 	b.WriteString("\n")
 	b.WriteString(components.FormatDuration(m.summary.Tracked))
 	b.WriteString(" tracked")
 	for _, currency := range dashboardCurrencies(
-		m.summary.EarnedMinor, m.summary.PaidMinor, m.summary.NetMinor,
-		m.summary.BalanceMinor,
+		m.summary.EarnedMinor, m.summary.PaidMinor,
 	) {
-		fmt.Fprintf(&b, "\n%s earned · %s paid · %s net · current %s",
+		fmt.Fprintf(&b, "\n%s earned · %s received in period",
 			components.FormatMoney(m.summary.EarnedMinor[currency], currency),
-			components.FormatMoney(m.summary.PaidMinor[currency], currency),
-			components.FormatMoney(m.summary.NetMinor[currency], currency),
-			components.FormatBalance(m.summary.BalanceMinor[currency], currency))
+			components.FormatMoney(m.summary.PaidMinor[currency], currency))
 	}
-	if chart := m.timelineChartView(lipgloss.Height(b.String())); chart != "" {
-		b.WriteString("\n\nTracked over time by project (hours)\n" + chart)
+	if balances := formatStatsBalances(m.summary.BalanceMinor); balances != "" {
+		b.WriteString("\nAll time through now: " + balances)
 	}
 	return b.String()
 }
@@ -243,7 +244,7 @@ func (m Stats) timelineChartView(headerHeight int) string {
 		return ""
 	}
 	legend := chartLegend(projects, m.width)
-	chartHeight := m.height - headerHeight - lipgloss.Height(legend) - 8
+	chartHeight := m.height - headerHeight - lipgloss.Height(legend) - 12
 	if chartHeight < 6 {
 		return ""
 	}
@@ -442,7 +443,11 @@ func (m *Stats) setListItems(items []list.Item) tea.Cmd {
 }
 
 func (m *Stats) resizeList() {
-	height := m.height - lipgloss.Height(m.headerView()) - 2
+	headerHeight := lipgloss.Height(m.headerView())
+	height := m.height - headerHeight - 2
+	if chart := m.timelineChartView(headerHeight); chart != "" {
+		height -= lipgloss.Height(chart) + 3
+	}
 	if height < 1 {
 		height = 1
 	}
