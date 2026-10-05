@@ -42,13 +42,7 @@ func (p projectItem) Description() string {
 	for i, currency := range currencies {
 		balances[i] = components.FormatBalance(p.balance[currency], currency)
 	}
-	parts := make([]string, 0, 4)
-	for _, currency := range dashboardCurrencies(p.earned, p.paid, p.balance) {
-		parts = append(parts,
-			components.FormatMoney(p.earned[currency], currency)+" earned",
-			components.FormatMoney(p.paid[currency], currency)+" paid",
-		)
-	}
+	parts := make([]string, 0, 3)
 	if len(balances) > 0 {
 		parts = append(parts, strings.Join(balances, ", "))
 	}
@@ -62,6 +56,16 @@ func (p projectItem) Description() string {
 		),
 	)
 	return strings.Join(parts, " · ")
+}
+
+func (p projectItem) accountingSummary() string {
+	lines := []string{"All time through now · " + components.FormatDuration(p.tracked) + " tracked"}
+	for _, currency := range dashboardCurrencies(p.earned, p.paid, p.balance) {
+		lines = append(lines, components.FormatBalance(p.balance[currency], currency)+" · "+
+			components.FormatMoney(p.earned[currency], currency)+" earned · "+
+			components.FormatMoney(p.paid[currency], currency)+" received")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (p projectItem) FilterValue() string {
@@ -88,6 +92,9 @@ func projectItems(
 			tracked: summary.Tracked,
 		}
 	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return strings.ToLower(items[i].project.Name) < strings.ToLower(items[j].project.Name)
+	})
 	return items
 }
 
@@ -117,7 +124,7 @@ func NewProjects(ctx context.Context, stor *storage.Storage) Projects {
 			return projectForm(ctx, stor, nil, meta.([]storage.Rate))
 		},
 		Update: func(item projectItem, meta any) (*components.Form[projectItem], error) {
-			return projectForm(ctx, stor, &item.project, meta.([]storage.Rate))
+			return projectForm(ctx, stor, &item.project, meta.([]storage.Rate), item.accountingSummary())
 		},
 		Delete: func(item projectItem) *components.Form[projectItem] {
 			return deleteProjectForm(ctx, stor, item.project)
@@ -137,6 +144,7 @@ func projectForm(
 	stor *storage.Storage,
 	project *storage.Project,
 	rates []storage.Rate,
+	summary ...string,
 ) (*components.Form[projectItem], error) {
 	if len(rates) == 0 {
 		return nil, errors.New("no rates available; create a rate first")
@@ -168,9 +176,13 @@ func projectForm(
 			Value(&values.RateID),
 	)).WithShowHelp(true)
 
+	title := "projects / " + action
+	if len(summary) > 0 {
+		title += "\n\n" + strings.Join(summary, "\n")
+	}
 	return components.NewForm[projectItem](
 		ctx,
-		"projects / "+action,
+		title,
 		form,
 		func(ctx context.Context) error {
 			values.Name = strings.TrimSpace(values.Name)

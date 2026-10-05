@@ -52,7 +52,7 @@ type model struct {
 
 func newModel(ctx context.Context, stor *storage.Storage) model {
 	return model{
-		active:    dashboardScreen,
+		active:    tasksScreen,
 		stats:     screens.NewStats(ctx, stor),
 		dashboard: screens.NewDashboard(ctx, stor),
 		projects:  screens.NewProjects(ctx, stor),

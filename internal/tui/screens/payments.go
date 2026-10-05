@@ -3,7 +3,7 @@ package screens
 import (
 	"context"
 	"errors"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,10 +24,10 @@ type paymentItem struct {
 }
 
 func (p paymentItem) Title() string {
-	return components.FormatMoney(
+	return p.project.Name + " · " + components.FormatMoney(
 		int64(p.payment.AmountMinor),
 		p.payment.Currency,
-	) + " · " + p.project.Name
+	)
 }
 
 func (p paymentItem) Description() string {
@@ -58,6 +58,12 @@ func paymentItems(
 			project: projectsByID[payment.ProjectID],
 		}
 	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if !items[i].payment.PaidAt.Equal(items[j].payment.PaidAt) {
+			return items[i].payment.PaidAt.After(items[j].payment.PaidAt)
+		}
+		return items[i].payment.ID > items[j].payment.ID
+	})
 	return items
 }
 
@@ -105,13 +111,13 @@ func paymentForm(
 	}
 
 	today := components.FormatDate(time.Now())
-	values := storage.Payment{ProjectID: projects[0].ID}
-	amountMinor := ""
+	values := storage.Payment{ProjectID: projects[0].ID, Currency: "USD"}
+	amount := ""
 	paidAt := today
 	action := "new"
 	if payment != nil {
 		values = *payment
-		amountMinor = strconv.Itoa(payment.AmountMinor)
+		amount = components.AmountInput(payment.AmountMinor, payment.Currency)
 		paidAt = components.FormatDate(payment.PaidAt)
 		action = "edit"
 	}
@@ -126,15 +132,16 @@ func paymentForm(
 			Options(options...).
 			Value(&values.ProjectID),
 		huh.NewInput().
-			Title("Amount in minor units").
-			Value(&amountMinor).
-			Validate(components.NonNegativeAmount),
-		huh.NewInput().
 			Title("Currency").
 			Placeholder("USD").
 			CharLimit(3).
 			Value(&values.Currency).
 			Validate(components.CurrencyCode),
+		huh.NewInput().
+			Title("Amount").
+			Description("Enter a currency amount, e.g. 125.50 USD. Unsupported currencies use minor units.").
+			Value(&amount).
+			Validate(func(value string) error { _, err := components.ParseAmount(value, values.Currency); return err }),
 		huh.NewInput().
 			Title("Paid at (YYYY-MM-DD)").
 			Value(&paidAt).
@@ -149,7 +156,7 @@ func paymentForm(
 		"payments / "+action,
 		form,
 		func(ctx context.Context) error {
-			parsedAmount, err := components.ParseAmountMinor(amountMinor)
+			parsedAmount, err := components.ParseAmount(amount, values.Currency)
 			if err != nil {
 				return err
 			}

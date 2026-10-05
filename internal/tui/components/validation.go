@@ -2,6 +2,7 @@ package components
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,46 @@ func ParseAmountMinor(value string) (int, error) {
 		return 0, errors.New("amount must be a non-negative integer")
 	}
 	return amount, nil
+}
+
+// AmountInput formats an editable amount without symbols or grouping.
+// Unsupported currencies retain the application's existing minor-unit convention.
+func AmountInput(amount int, currency string) string {
+	precision := currencies[strings.ToUpper(strings.TrimSpace(currency))].minorUnits
+	scale := 1
+	for range precision {
+		scale *= 10
+	}
+	if precision == 0 {
+		return strconv.Itoa(amount)
+	}
+	return fmt.Sprintf("%d.%0*d", amount/scale, precision, amount%scale)
+}
+
+func ParseAmount(value, currency string) (int, error) {
+	if err := CurrencyCode(currency); err != nil {
+		return 0, err
+	}
+	precision := currencies[strings.ToUpper(strings.TrimSpace(currency))].minorUnits
+	parts := strings.Split(strings.TrimSpace(value), ".")
+	if len(parts) > 2 || parts[0] == "" {
+		return 0, errors.New("enter a non-negative amount, such as 125.50")
+	}
+	fraction := ""
+	if len(parts) == 2 {
+		fraction = parts[1]
+	}
+	if len(fraction) > precision || (len(parts) == 2 && (fraction == "" || precision == 0)) {
+		return 0, fmt.Errorf("%s amounts allow %d decimal places", strings.ToUpper(strings.TrimSpace(currency)), precision)
+	}
+	for _, part := range parts {
+		for _, digit := range part {
+			if digit < '0' || digit > '9' {
+				return 0, errors.New("amount must contain only digits and a decimal point")
+			}
+		}
+	}
+	return ParseAmountMinor(parts[0] + fraction + strings.Repeat("0", precision-len(fraction)))
 }
 
 func CurrencyCode(value string) error {

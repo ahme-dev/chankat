@@ -67,3 +67,9 @@ func TestDashboardProjectOpensFilteredTasksTab(t *testing.T) {
 		t.Fatal("task filter did not trigger a refresh")
 	}
 }
+
+func TestStartsOnTasks(t *testing.T) {
+	if m := newModel(t.Context(), nil); m.active != tasksScreen {
+		t.Fatal("application should open the daily task workflow")
+	}
+}

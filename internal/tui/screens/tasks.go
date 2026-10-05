@@ -403,7 +403,7 @@ func (m Dashboard) content() string {
 	sections = append(sections, dashboardMutedStyle.Render(m.filterLabel()))
 	var active strings.Builder
 	active.WriteString(dashboardSectionStyle.Render(
-		countLabel(len(m.activeItems), "active task"),
+		countLabel(len(m.activeItems), "running timer")+" (all projects)",
 	) + "\n")
 	if len(m.active.Items()) == 0 {
 		active.WriteString(dashboardMutedStyle.Render("No active timers."))
@@ -435,15 +435,28 @@ func countLabel(count int, singular string) string {
 }
 
 func (m *Dashboard) refreshTables() {
-	entries := m.filteredEntries()
+	entries := m.entries
+	if m.filter != nil {
+		entries = storage.EntriesInPeriod(entries, m.filter.Period, m.now)
+	}
 	active := make([]list.Item, 0)
 	m.activeItems = m.activeItems[:0]
-	for _, entry := range entries {
+	for _, entry := range m.entries {
 		if entry.EndedAt == nil {
 			m.activeItems = append(m.activeItems, entry)
-			duration := m.now.Sub(entry.StartedAt)
-			if duration < 0 {
-				duration = 0
+			duration := time.Duration(0)
+			for _, periodEntry := range entries {
+				if periodEntry.ID == entry.ID {
+					end := m.now
+					if periodEntry.EndedAt != nil {
+						end = *periodEntry.EndedAt
+					}
+					duration = end.Sub(periodEntry.StartedAt)
+					if duration < 0 {
+						duration = 0
+					}
+					break
+				}
 			}
 			amounts := make(map[string]int64)
 			if entry.TaskID != nil {
@@ -465,29 +478,19 @@ func (m *Dashboard) refreshTables() {
 				session = 0
 			}
 			description := []string{
+				"session " + components.FormatDuration(session),
 				m.entryProject(entry),
 			}
-			if entry.RateID != nil {
-				if rate, ok := m.rates[*entry.RateID]; ok {
-					description = append(description, fmt.Sprintf(
-						"%s · %s/hour",
-						rate.Name,
-						components.FormatMoney(
-							int64(rate.AmountMinor), rate.Currency,
-						),
-					))
-				}
+			label := "total "
+			if m.filter != nil && m.filter.Period.Kind != storage.All {
+				label = "period "
 			}
-			description = append(
-				description,
-				"session "+components.FormatDuration(session),
-				"total "+components.FormatDuration(duration),
-			)
+			description = append(description, label+components.FormatDuration(duration))
 			if amount := formatTaskAmounts(amounts); amount != "" {
 				description = append(description, amount+" earned")
 			}
 			active = append(active, dashboardItem{
-				title:       "[||] " + m.entryTask(entry),
+				title:       "● Running · " + m.entryTask(entry),
 				description: strings.Join(description, " · "),
 			})
 		}
@@ -977,7 +980,7 @@ func (m *Dashboard) resizeEntryPage() {
 	if m.entryPage == nil {
 		return
 	}
-	height := m.viewport.Height - 3
+	height := m.viewport.Height - lipgloss.Height(m.detailHeader()) - 1
 	if height < 4 {
 		height = 4
 	}
@@ -1138,34 +1141,43 @@ func sameTask(left, right storage.Task) bool {
 	return *left.RateID == *right.RateID
 }
 
-func (m Dashboard) detailView() string {
+func (m Dashboard) detailHeader() string {
 	task := *m.detailTask
 	project := m.projects[task.ProjectID]
-	duration, amounts := taskTotals(m.filteredEntries(), m.rates, task.ID, m.now)
+	entries := m.entries
+	periodLabel := "All time"
+	if m.filter != nil {
+		entries = storage.EntriesInPeriod(entries, m.filter.Period, m.now)
+		periodLabel = m.filter.Period.Label()
+	}
+	duration, amounts := taskTotals(entries, m.rates, task.ID, m.now)
 	rate, overridden := effectiveTaskRate(task, m.projectList, m.rates)
-	summary := project
-	for _, item := range storage.SummarizeTasks([]storage.Task{task}, m.projectList,
-		m.filteredEntries(), mapRates(m.rates), m.now) {
-		summary += formatHistoricalRates(item.HistoricalRates)
-	}
-	if rate.ID != 0 {
-		summary += " · " + formatTaskRate(rate, overridden)
-	}
-	summary += " · total " + components.FormatDuration(duration)
+	summary := project + " · " + periodLabel
+	summary += "\nTracked: " + components.FormatDuration(duration)
 	if amount := formatTaskAmounts(amounts); amount != "" {
 		summary += " · " + amount + " earned"
 	}
+	for _, item := range storage.SummarizeTasks([]storage.Task{task}, m.projectList,
+		entries, mapRates(m.rates), m.now) {
+		if historical := formatHistoricalRates(item.HistoricalRates); historical != "" {
+			summary += "\n" + strings.TrimPrefix(historical, " · ")
+		}
+	}
+	if rate.ID != 0 {
+		summary += "\n" + formatTaskRate(rate, overridden)
+	}
+	return fmt.Sprintf("%s\n%s\n\n%s",
+		dashboardSectionStyle.Render(task.Name),
+		dashboardMutedStyle.Render(summary),
+		dashboardSectionStyle.Render("Time entries"))
+}
+
+func (m Dashboard) detailView() string {
 	body := "No entries."
 	if m.entryPage != nil {
 		body = m.entryPage.View()
 	}
-	return fmt.Sprintf(
-		"%s\n%s\n\n%s\n%s",
-		dashboardSectionStyle.Render(task.Name),
-		dashboardMutedStyle.Render(summary),
-		dashboardSectionStyle.Render("Time entries"),
-		body,
-	)
+	return m.detailHeader() + "\n" + body
 }
 
 type taskItem struct {
@@ -1175,7 +1187,7 @@ type taskItem struct {
 	description string
 }
 
-func (t taskItem) Title() string       { return "[>] " + t.task.Name }
+func (t taskItem) Title() string       { return t.task.Name }
 func (t taskItem) Description() string { return t.description }
 func (t taskItem) FilterValue() string {
 	return t.task.Name + " " + t.project.Name + " " + t.rate.Name
@@ -1257,6 +1269,19 @@ func taskItemsForFilter(
 	filter TaskListFilter,
 	now time.Time,
 ) []taskItem {
+	running := make(map[int]bool)
+	for _, entry := range entries {
+		if entry.EndedAt == nil && entry.TaskID != nil {
+			running[*entry.TaskID] = true
+		}
+	}
+	inactive := make([]storage.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if !running[task.ID] {
+			inactive = append(inactive, task)
+		}
+	}
+	tasks = inactive
 	periodFiltered := filter.Period.Kind != storage.All ||
 		!filter.Period.Start.IsZero() || !filter.Period.End.IsZero()
 	if periodFiltered {
@@ -1321,7 +1346,7 @@ func summarizedTaskItems(
 			return leftOK
 		}
 		if !leftOK {
-			return false
+			return strings.ToLower(left.Name) < strings.ToLower(right.Name)
 		}
 		if !left.LastEndedAt.Equal(*right.LastEndedAt) {
 			return left.LastEndedAt.After(*right.LastEndedAt)
@@ -1332,13 +1357,9 @@ func summarizedTaskItems(
 	items := make([]taskItem, 0, len(ordered))
 	for _, summary := range ordered {
 		description := summary.Project.Name
-		description += formatHistoricalRates(summary.HistoricalRates)
-		if summary.Rate.ID != 0 {
-			description += " · " + formatTaskRate(
-				summary.Rate, summary.RateOverridden,
-			)
-		}
+
 		if summary.LastEndedAt != nil {
+			description += " · last worked " + components.FormatDate(*summary.LastEndedAt)
 			totalLabel := "total "
 			if periodFiltered {
 				totalLabel = "period "
@@ -1348,8 +1369,9 @@ func summarizedTaskItems(
 			if amount := formatTaskAmounts(summary.EarnedMinor); amount != "" {
 				description += " · " + amount + " earned"
 			}
-			description += " · worked " +
-				components.FormatDate(*summary.LastEndedAt)
+		}
+		if summary.LastEndedAt == nil {
+			description += " · not yet tracked"
 		}
 		items = append(items, taskItem{
 			task:        summary.Task,

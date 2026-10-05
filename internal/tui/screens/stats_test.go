@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"chankat/internal/storage"
+	"github.com/charmbracelet/lipgloss"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -20,7 +21,7 @@ func TestStatsPeriodKeysAndProjectNavigation(t *testing.T) {
 	end := now.Add(-time.Hour)
 	m := NewStats(t.Context(), nil)
 	m.now, m.period, m.loading = now, period, false
-	m.width, m.height = 80, 20
+	m.width, m.height = 80, 30
 	m.projects = []storage.Project{
 		{ID: 1, Name: "Acme", RateID: 1},
 		{ID: 2, Name: "Beta", RateID: 1},
@@ -79,6 +80,20 @@ func TestStatsPeriodKeysAndProjectNavigation(t *testing.T) {
 	}
 	if got := strings.Count(m.View(), "●"); got != 2 {
 		t.Fatalf("chart legend entries = %d, want 2", got)
+	}
+	view := m.View()
+	if strings.Index(view, "Acme") > strings.Index(view, "Tracked over time by project (hours)") {
+		t.Fatal("chart appeared ahead of project rows")
+	}
+	if lipgloss.Height(view) > m.height {
+		t.Fatalf("dashboard exceeds terminal height: %d > %d", lipgloss.Height(view), m.height)
+	}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 18})
+	if strings.Contains(m.View(), "Tracked over time by project (hours)") {
+		t.Fatal("chart should yield space to rows in a short terminal")
+	}
+	if lipgloss.Height(m.View()) > m.height {
+		t.Fatal("short dashboard exceeds terminal height")
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 
@@ -188,5 +203,21 @@ func TestStatsAppliesFilterResultsAfterRefresh(t *testing.T) {
 	items := m.list.VisibleItems()
 	if len(items) != 1 || items[0].FilterValue() != "Beta" {
 		t.Fatalf("visible items = %#v, want Beta", items)
+	}
+}
+
+func TestStatsSeparatesPeriodAndAllTimeAmounts(t *testing.T) {
+	m := NewStats(t.Context(), nil)
+	m.summary = storage.DashboardSummary{Tracked: time.Hour,
+		EarnedMinor: map[string]int64{"USD": 5000}, PaidMinor: map[string]int64{"USD": 2000},
+		NetMinor: map[string]int64{"USD": 3000}, BalanceMinor: map[string]int64{"USD": 12000}}
+	header := m.headerView()
+	for _, want := range []string{"Period:", "$50.00 earned · $20.00 received in period", "All time through now: $120.00 outstanding"} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("missing %q: %s", want, header)
+		}
+	}
+	if strings.Contains(header, "net") {
+		t.Fatal("ambiguous net value remains in summary")
 	}
 }
